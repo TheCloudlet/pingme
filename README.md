@@ -1,4 +1,4 @@
-# PingMe
+# pingme
 
 Talk to **Grok Build** (`grok`) or **Codex CLI** (`codex`) on your computer from a Slack thread.
 
