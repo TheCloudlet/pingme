@@ -594,7 +594,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pingme"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-agent",
  "pingme-host",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "pingme-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-session",
  "pingme-support",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "pingme-host"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-agent",
  "pingme-routing",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "pingme-routing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-session",
  "pingme-setting",
@@ -640,14 +640,14 @@ dependencies = [
 
 [[package]]
 name = "pingme-session"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-support",
 ]
 
 [[package]]
 name = "pingme-setting"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -655,7 +655,7 @@ dependencies = [
 
 [[package]]
 name = "pingme-slack"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "pingme-routing",
@@ -669,11 +669,11 @@ dependencies = [
 
 [[package]]
 name = "pingme-support"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "pingme-tmux"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pingme-agent",
  "pingme-session",
