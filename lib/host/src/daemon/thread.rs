@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::SystemTime;
 
 use pingme_agent::prompt_fingerprint;
 use pingme_routing::photo::{
@@ -7,20 +8,29 @@ use pingme_routing::photo::{
 use pingme_routing::thread::{
     ThreadAction, ThreadMessage, apply_host_routing_policy, route_thread_message,
 };
-use pingme_routing::update::{session_update_after_prompt_paste, session_update_reject};
+use pingme_routing::update::{
+    screen_block, session_update_after_prompt_paste, session_update_queued, session_update_reject,
+    session_update_turn,
+};
 use pingme_session::{AgentSession, SessionStatus};
 use pingme_setting::HostSettings;
-use pingme_slack::api::{download_slack_photo, post_thread_reply, update_status_card};
+use pingme_slack::api::{
+    SLACK_TEXT_LIMIT, download_slack_photo, post_thread_reply, post_thread_reply_ts,
+    update_status_card, update_thread_reply,
+};
 use pingme_slack::envelope::thread_message_from_envelope;
 use pingme_support::tmux::tmux;
-use pingme_tmux::pane::{pane_available, paste_into_pane};
+use pingme_tmux::pane::{capture_pane, pane_available, paste_into_pane, send_keys};
 use serde_json::Value;
+
+use super::runtime::LiveSessions;
 
 pub(crate) fn handle_slack_event(
     bot_token: &str,
     setting: &HostSettings,
     started_at: f64,
     envelope: &Value,
+    live: &mut LiveSessions,
 ) -> Result<(), String> {
     let Some(message) = thread_message_from_envelope(envelope) else {
         return Ok(());
@@ -29,9 +39,21 @@ pub(crate) fn handle_slack_event(
     let Some(routed) = route_thread_message(&message, &sessions, &setting.slack) else {
         return Ok(());
     };
-    let action = apply_host_routing_policy(&message, routed.session, routed.action, started_at);
+    let queued = routed
+        .session
+        .pane_id
+        .as_deref()
+        .and_then(|pane| live.queued(pane))
+        .map(str::to_owned);
+    let action = apply_host_routing_policy(
+        &message,
+        routed.session,
+        routed.action,
+        started_at,
+        queued.as_deref(),
+    );
     let mut session = routed.session.clone();
-    if let Err(error) = act_on_thread_message(bot_token, &mut session, &message, action) {
+    if let Err(error) = act_on_thread_message(bot_token, &mut session, &message, action, live) {
         let _ = post_thread_reply(bot_token, &session, &format!("Bridge error: {error}"));
         return Err(error);
     }
@@ -43,11 +65,15 @@ fn act_on_thread_message(
     session: &mut AgentSession,
     message: &ThreadMessage<'_>,
     action: ThreadAction,
+    live: &mut LiveSessions,
 ) -> Result<(), String> {
     match action {
         ThreadAction::Prompt(prompt) => {
+            submit_prompt(bot_token, session, prompt, &message.files, live)
+        }
+        ThreadAction::Enqueue { prompt, replaced } => {
             if !pane_available(session.pane()?) {
-                return mark_unavailable(bot_token, session);
+                return mark_unavailable(bot_token, session, live);
             }
             let prompt = match materialize_thread_prompt(bot_token, session, prompt, &message.files)
             {
@@ -60,49 +86,54 @@ fn act_on_thread_message(
                     );
                 }
             };
-            session.write_last_slack_prompt(Some(prompt_fingerprint(&prompt)))?;
-            if let Err(error) = session.write_status(SessionStatus::Busy) {
-                let _ = session.write_last_slack_prompt(None);
-                return post_thread_reply(
-                    bot_token,
-                    session,
-                    &format!("Not executed: failed to mark session busy: {error}"),
-                );
-            }
-            if let Err(error) = update_status_card(bot_token, session) {
-                let _ = session.write_last_slack_prompt(None);
-                session.write_status(SessionStatus::Idle)?;
-                return post_thread_reply(
-                    bot_token,
-                    session,
-                    &format!("Not executed: failed to mark session busy: {error}"),
-                );
-            }
-            let pasted = paste_into_pane(session.pane()?, &prompt);
-            if pasted.is_err() {
-                let _ = session.write_last_slack_prompt(None);
-                session.write_status(SessionStatus::Idle)?;
-                let _ = update_status_card(bot_token, session);
-            }
-            let receipt = session_update_after_prompt_paste(pasted.clone(), &session.agent_cli);
-            match post_thread_reply(bot_token, session, &receipt) {
-                Err(error) if pasted.is_ok() => {
-                    eprintln!("failed to post prompt receipt: {error}");
-                    Ok(())
-                }
-                posted => posted,
-            }
+            let pane = session.pane()?.to_owned();
+            live.enqueue(&pane, prompt);
+            post_thread_reply(
+                bot_token,
+                session,
+                &session_update_queued(&session.agent_cli, replaced),
+            )
         }
         ThreadAction::Stop => {
             if !pane_available(session.pane()?) {
-                return mark_unavailable(bot_token, session);
+                return mark_unavailable(bot_token, session, live);
             }
-            tmux(&["send-keys", "-t", session.pane()?, "Escape"])?;
+            let pane = session.pane()?.to_owned();
+            let cleared = live.take_queued(&pane).is_some();
+            if let Some(ended) = live.finish_turn(&pane)
+                && let Some(ts) = ended.receipt_ts
+            {
+                let text = session_update_turn(&session.agent_cli, "■ stopped", ended.elapsed);
+                let _ = update_thread_reply(bot_token, session, &ts, &text);
+            }
+            tmux(&["send-keys", "-t", &pane, "Escape"])?;
             session.write_status(SessionStatus::Idle)?;
             update_status_card(bot_token, session)?;
-            post_thread_reply(bot_token, session, "Stop sent (Escape).")
+            let mut text = "Stop sent (Escape).".to_owned();
+            if cleared {
+                text.push_str(" Queued prompt cleared.");
+            }
+            post_thread_reply(bot_token, session, &text)
         }
-        ThreadAction::MarkUnavailable => mark_unavailable(bot_token, session),
+        ThreadAction::Screen => {
+            if !pane_available(session.pane()?) {
+                return mark_unavailable(bot_token, session, live);
+            }
+            let captured = capture_pane(session.pane()?)?;
+            post_thread_reply(
+                bot_token,
+                session,
+                &screen_block(&captured, SLACK_TEXT_LIMIT),
+            )
+        }
+        ThreadAction::Keys(keys) => {
+            if !pane_available(session.pane()?) {
+                return mark_unavailable(bot_token, session, live);
+            }
+            send_keys(session.pane()?, &keys)?;
+            post_thread_reply(bot_token, session, "Keys sent.")
+        }
+        ThreadAction::MarkUnavailable => mark_unavailable(bot_token, session, live),
         ThreadAction::Name => post_thread_reply(
             bot_token,
             session,
@@ -117,7 +148,7 @@ fn act_on_thread_message(
                 );
             }
             if !pane_available(session.pane()?) {
-                return mark_unavailable(bot_token, session);
+                return mark_unavailable(bot_token, session, live);
             }
             rename_session(bot_token, session, &name)?;
             post_thread_reply(bot_token, session, &format!("Renamed to `{name}`."))
@@ -125,6 +156,61 @@ fn act_on_thread_message(
         ThreadAction::Reject(reason) => post_thread_reply(bot_token, session, &reason),
         ThreadAction::Ignore => Ok(()),
     }
+}
+
+pub(crate) fn submit_prompt(
+    bot_token: &str,
+    session: &mut AgentSession,
+    prompt: String,
+    files: &[SlackFile],
+    live: &mut LiveSessions,
+) -> Result<(), String> {
+    if !pane_available(session.pane()?) {
+        return mark_unavailable(bot_token, session, live);
+    }
+    let prompt = match materialize_thread_prompt(bot_token, session, prompt, files) {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            return post_thread_reply(bot_token, session, &format!("Not executed: {error}"));
+        }
+    };
+    session.write_last_slack_prompt(Some(prompt_fingerprint(&prompt)))?;
+    if let Err(error) = session.write_status(SessionStatus::Busy) {
+        let _ = session.write_last_slack_prompt(None);
+        return post_thread_reply(
+            bot_token,
+            session,
+            &format!("Not executed: failed to mark session busy: {error}"),
+        );
+    }
+    if let Err(error) = update_status_card(bot_token, session) {
+        let _ = session.write_last_slack_prompt(None);
+        session.write_status(SessionStatus::Idle)?;
+        return post_thread_reply(
+            bot_token,
+            session,
+            &format!("Not executed: failed to mark session busy: {error}"),
+        );
+    }
+    let pane = session.pane()?.to_owned();
+    let pasted = paste_into_pane(&pane, &prompt);
+    if pasted.is_err() {
+        let _ = session.write_last_slack_prompt(None);
+        session.write_status(SessionStatus::Idle)?;
+        let _ = update_status_card(bot_token, session);
+    }
+    let receipt = session_update_after_prompt_paste(pasted.clone(), &session.agent_cli);
+    let posted = post_thread_reply_ts(bot_token, session, &receipt);
+    if pasted.is_err() {
+        return posted.map(drop);
+    }
+    // The receipt becomes the turn's status line; without it the turn still watches the pane.
+    let receipt_ts = posted
+        .inspect_err(|error| eprintln!("failed to post prompt receipt: {error}"))
+        .ok();
+    let screen = capture_pane(&pane).unwrap_or_default();
+    live.begin_turn(&pane, SystemTime::now(), &screen, receipt_ts);
+    Ok(())
 }
 
 fn materialize_thread_prompt(
@@ -146,7 +232,14 @@ fn materialize_thread_prompt(
     Ok(prompt_with_local_photos(&prompt, &paths))
 }
 
-pub fn mark_unavailable(bot_token: &str, session: &mut AgentSession) -> Result<(), String> {
+pub fn mark_unavailable(
+    bot_token: &str,
+    session: &mut AgentSession,
+    live: &mut LiveSessions,
+) -> Result<(), String> {
+    if let Ok(pane) = session.pane() {
+        live.drop_pane(pane);
+    }
     session.write_status(SessionStatus::Unavailable)?;
     update_status_card(bot_token, session)?;
     post_thread_reply(

@@ -15,6 +15,24 @@ pub fn pane_available(pane_id: &str) -> bool {
     .is_ok_and(|output| output.trim() == format!("{pane_id}\t0"))
 }
 
+pub fn capture_pane(pane_id: &str) -> Result<String, String> {
+    tmux(&["capture-pane", "-p", "-t", pane_id])
+}
+
+/// Sends tmux key names. Whitespace separates keys (`y`, `Enter`, `C-c`). No shell.
+pub fn send_keys(pane_id: &str, keys: &str) -> Result<(), String> {
+    let names: Vec<&str> = keys.split_whitespace().collect();
+    if names.is_empty() {
+        return Err("usage: pingme keys <keys>".to_owned());
+    }
+    let mut args = Vec::with_capacity(names.len() + 3);
+    args.push("send-keys");
+    args.push("-t");
+    args.push(pane_id);
+    args.extend(names);
+    tmux(&args).map(drop)
+}
+
 pub fn paste_into_pane(pane_id: &str, text: &str) -> Result<(), String> {
     let buffer = format!("pingme-{}", std::process::id());
     let mut load = Command::new("tmux")

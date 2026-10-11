@@ -4,10 +4,11 @@ use pingme_host::services::LocalServices;
 
 use crate::cli::{CliResult, parse_setting};
 
-pub(crate) const REQUIRED_BOT_SCOPES: [&str; 5] = [
+pub(crate) const REQUIRED_BOT_SCOPES: [&str; 6] = [
     "chat:write",
     "commands",
     "files:read",
+    "files:write",
     "groups:history",
     "groups:read",
 ];
@@ -213,6 +214,29 @@ mod tests {
         assert!(!services.calls.contains(&"bot_token_scopes"));
         assert!(!services.calls.contains(&"probe_app_token"));
         assert!(!services.calls.contains(&"probe_control_channel"));
+    }
+
+    #[test]
+    fn doctor_reports_a_missing_files_write_scope_with_the_reinstall_step() {
+        let mut services = FakeServices {
+            bot_scopes: Some(vec![
+                "chat:write",
+                "commands",
+                "files:read",
+                "groups:history",
+                "groups:read",
+            ]),
+            ..FakeServices::default()
+        };
+        let result = doctor_with(&mut services, SETTING);
+
+        assert_eq!(2, result.exit_code);
+        assert!(
+            result
+                .stdout
+                .contains("FAIL bot token scopes: missing files:write")
+        );
+        assert!(result.stdout.contains("Reinstall to Workspace"));
     }
 
     #[test]

@@ -117,6 +117,7 @@ The manifest grants these bot permissions:
 | `chat:write`     | Post, update, and delete messages in the channel |
 | `commands`       | The `/pingme` slash command                      |
 | `files:read`     | Download photos you paste                        |
+| `files:write`    | Upload the full text when an answer is long      |
 | `groups:history` | Read messages in the private channel             |
 | `groups:read`    | See the private channel                          |
 

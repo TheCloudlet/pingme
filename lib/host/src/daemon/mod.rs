@@ -19,12 +19,14 @@ use tokio::time::MissedTickBehavior;
 use crate::daemon::control::handle_control_command;
 use crate::daemon::monitor::monitor_agent_sessions;
 use crate::daemon::notify::{handle_host_notification, read_agent_notification};
+use crate::daemon::runtime::LiveSessions;
 use crate::daemon::thread::handle_slack_event;
 use crate::socket::host_notify_socket_path;
 
 mod control;
 pub mod monitor;
 pub mod notify;
+mod runtime;
 mod thread;
 
 pub fn run_daemon_process() -> ExitCode {
@@ -70,6 +72,7 @@ async fn run_host_daemon() -> Result<(), String> {
     // (or Agent CLI notify) down with it.
     let mut slack = SlackSocketMode::connect(reqwest::Client::new(), app_token);
     let mut known_sessions = block_in_place(AgentSession::list_from_registry)?;
+    let mut live = LiveSessions::default();
     let mut pane_poll = tokio::time::interval(std::time::Duration::from_millis(1_000));
     pane_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -81,9 +84,15 @@ async fn run_host_daemon() -> Result<(), String> {
                     return Ok(());
                 };
                 let started_at = slack.epoch();
-                if let Err(error) =
-                    block_in_place(|| handle_envelope(&bot_token, &setting, started_at, &envelope))
-                {
+                if let Err(error) = block_in_place(|| {
+                    handle_envelope(
+                        &bot_token,
+                        &setting,
+                        started_at,
+                        &envelope,
+                        &mut live,
+                    )
+                }) {
                     eprintln!("failed to handle Slack envelope: {error}");
                 }
             }
@@ -98,14 +107,25 @@ async fn run_host_daemon() -> Result<(), String> {
                         continue;
                     }
                 };
-                if let Err(error) =
-                    block_in_place(|| handle_host_notification(&bot_token, &setting, &notification))
-                {
+                if let Err(error) = block_in_place(|| {
+                    handle_host_notification(
+                        &bot_token,
+                        &setting,
+                        &notification,
+                        &mut live,
+                    )
+                }) {
                     eprintln!("failed to handle Agent CLI notification: {error}");
                 }
             }
             _ = pane_poll.tick() => {
-                if let Err(error) = block_in_place(|| monitor_agent_sessions(&bot_token, &mut known_sessions)) {
+                if let Err(error) = block_in_place(|| {
+                    monitor_agent_sessions(
+                        &bot_token,
+                        &mut known_sessions,
+                        &mut live,
+                    )
+                }) {
                     eprintln!("failed to monitor Agent Sessions: {error}");
                 }
             }
@@ -119,10 +139,11 @@ fn handle_envelope(
     setting: &HostSettings,
     started_at: f64,
     envelope: &Value,
+    live: &mut LiveSessions,
 ) -> Result<(), String> {
     match envelope.get("type").and_then(Value::as_str) {
         Some("slash_commands") => handle_control_command(bot_token, setting, envelope),
-        Some("events_api") => handle_slack_event(bot_token, setting, started_at, envelope),
+        Some("events_api") => handle_slack_event(bot_token, setting, started_at, envelope, live),
         _ => Ok(()),
     }
 }

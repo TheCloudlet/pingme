@@ -1,7 +1,14 @@
 // ponytail: O(n^2) over local Sessions; index by pane ID if a Host reaches hundreds.
-use pingme_routing::update::agent_display_name;
+use std::time::SystemTime;
+
+use pingme_routing::update::{agent_display_name, session_update_turn, session_update_waiting};
 use pingme_session::{AgentSession, SessionStatus};
-use pingme_slack::api::{delete_thread_root, post_thread_reply};
+use pingme_slack::api::{
+    SLACK_TEXT_LIMIT, delete_thread_root, post_thread_reply, update_thread_reply,
+};
+use pingme_tmux::pane::capture_pane;
+
+use super::runtime::LiveSessions;
 
 fn ended_agent_sessions(known: &[AgentSession], current: &[AgentSession]) -> Vec<AgentSession> {
     let mut ended: Vec<AgentSession> = known
@@ -35,6 +42,7 @@ fn ended_agent_sessions(known: &[AgentSession], current: &[AgentSession]) -> Vec
 pub(crate) fn monitor_agent_sessions(
     bot_token: &str,
     known: &mut Vec<AgentSession>,
+    live: &mut LiveSessions,
 ) -> Result<(), String> {
     let mut current = AgentSession::list_from_registry()?;
     let ended = ended_agent_sessions(known, &current);
@@ -61,6 +69,9 @@ pub(crate) fn monitor_agent_sessions(
             |session| delete_thread_root(bot_token, session),
         )?;
         record_unavailable(known, &session);
+        if let Some(pane) = ended_session.pane_id.as_deref() {
+            live.drop_pane(pane);
+        }
     }
     for session in &mut current {
         if !session.available {
@@ -71,7 +82,48 @@ pub(crate) fn monitor_agent_sessions(
         record_unavailable(&mut current, session);
     }
     *known = current;
+    refresh_busy_progress(bot_token, known, live);
     Ok(())
+}
+
+fn refresh_busy_progress(bot_token: &str, sessions: &[AgentSession], live: &mut LiveSessions) {
+    let now = SystemTime::now();
+    for session in sessions {
+        if !session.available || session.status != SessionStatus::Busy {
+            continue;
+        }
+        let Ok(pane) = session.pane() else {
+            continue;
+        };
+        if !live.has_turn(pane) {
+            continue;
+        }
+        let Ok(screen) = capture_pane(pane) else {
+            continue;
+        };
+        let Some(progress) = live.step(pane, now, &screen) else {
+            continue;
+        };
+        if progress.waiting
+            && let Err(error) = post_thread_reply(
+                bot_token,
+                session,
+                &session_update_waiting(&screen, SLACK_TEXT_LIMIT),
+            )
+        {
+            eprintln!("failed to post waiting notice: {error}");
+        }
+        if let Some((ts, elapsed)) = progress.edit
+            && let Err(error) = update_thread_reply(
+                bot_token,
+                session,
+                &ts,
+                &session_update_turn(&session.agent_cli, "⏳ working", elapsed),
+            )
+        {
+            eprintln!("failed to update prompt receipt: {error}");
+        }
+    }
 }
 
 fn record_unavailable(sessions: &mut Vec<AgentSession>, ended: &AgentSession) {

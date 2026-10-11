@@ -93,7 +93,7 @@ mod tests {
         let sessions = [session];
 
         let routed = route_thread_message(&message, &sessions, &slack).unwrap();
-        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0);
+        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0, None);
 
         assert_eq!(
             ThreadAction::Prompt("inspect the failure".to_owned()),
@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn recorded_operator_prompt_is_rejected_while_session_is_busy() {
+    fn recorded_operator_prompt_is_queued_while_session_is_busy() {
         let envelopes = recorded_slack_envelopes();
         let message = thread_message_from_envelope(&envelopes["operator"]).unwrap();
         let mut session = test_session(
@@ -117,11 +117,28 @@ mod tests {
         let sessions = [session];
         let routed = route_thread_message(&message, &sessions, &slack).unwrap();
 
-        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0);
+        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0, None);
 
         assert_eq!(
-            ThreadAction::Reject(session_update_reject("codex", "busy")),
+            ThreadAction::Enqueue {
+                prompt: "inspect the failure".to_owned(),
+                replaced: false,
+            },
             action
+        );
+        let replaced = apply_host_routing_policy(
+            &message,
+            routed.session,
+            ThreadAction::Prompt("inspect the failure".to_owned()),
+            0.0,
+            Some("old"),
+        );
+        assert_eq!(
+            ThreadAction::Enqueue {
+                prompt: "inspect the failure".to_owned(),
+                replaced: true,
+            },
+            replaced
         );
     }
 
@@ -141,7 +158,7 @@ mod tests {
         let routed = route_thread_message(&message, &sessions, &slack).unwrap();
 
         let action =
-            apply_host_routing_policy(&message, routed.session, routed.action, 1757221925.0);
+            apply_host_routing_policy(&message, routed.session, routed.action, 1757221925.0, None);
 
         assert_eq!(
             ThreadAction::Reject(session_update_reject("codex", "stale")),
@@ -165,7 +182,7 @@ mod tests {
         let sessions = [session];
         let routed = route_thread_message(&message, &sessions, &slack).unwrap();
 
-        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0);
+        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0, None);
 
         assert_eq!(ThreadAction::MarkUnavailable, action);
     }
@@ -185,7 +202,7 @@ mod tests {
         let sessions = [session];
         let routed = route_thread_message(&message, &sessions, &slack).unwrap();
 
-        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0);
+        let action = apply_host_routing_policy(&message, routed.session, routed.action, 0.0, None);
 
         assert_eq!(ThreadAction::Stop, action);
         assert!(routed.session.available);

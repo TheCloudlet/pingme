@@ -19,7 +19,15 @@ pub struct ThreadMessage<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ThreadAction {
     Prompt(String),
+    /// One prompt held until the current turn ends. `replaced` is true when it
+    /// overwrites a prompt already waiting.
+    Enqueue {
+        prompt: String,
+        replaced: bool,
+    },
     Stop,
+    Screen,
+    Keys(String),
     MarkUnavailable,
     Name,
     Rename(String),
@@ -76,6 +84,8 @@ pub(crate) fn thread_action(
     match text {
         "pingme stop" => ThreadAction::Stop,
         "pingme name" => ThreadAction::Name,
+        "pingme screen" => ThreadAction::Screen,
+        "pingme keys" => ThreadAction::Reject("usage: pingme keys <keys>".to_owned()),
         _ => {
             if let Some(name) = text.strip_prefix("pingme rename ") {
                 let name = name.trim();
@@ -83,6 +93,13 @@ pub(crate) fn thread_action(
                     ThreadAction::Reject("usage: pingme rename <new-session-name>".to_owned())
                 } else {
                     ThreadAction::Rename(name.to_owned())
+                }
+            } else if let Some(keys) = text.strip_prefix("pingme keys ") {
+                let keys = keys.trim();
+                if keys.is_empty() {
+                    ThreadAction::Reject("usage: pingme keys <keys>".to_owned())
+                } else {
+                    ThreadAction::Keys(keys.to_owned())
                 }
             } else {
                 ThreadAction::Prompt(text.to_owned())
@@ -96,6 +113,7 @@ pub fn apply_host_routing_policy(
     session: &AgentSession,
     action: ThreadAction,
     started_at: f64,
+    queued_prompt: Option<&str>,
 ) -> ThreadAction {
     if matches!(action, ThreadAction::Ignore) {
         return action;
@@ -108,10 +126,20 @@ pub fn apply_host_routing_policy(
         return ThreadAction::Reject(session_update_reject(&session.agent_cli, "stale"));
     }
     match action {
-        ThreadAction::Prompt(_) if session.available && session.status == SessionStatus::Busy => {
-            ThreadAction::Reject(session_update_reject(&session.agent_cli, "busy"))
+        ThreadAction::Prompt(prompt)
+            if session.available && session.status == SessionStatus::Busy =>
+        {
+            ThreadAction::Enqueue {
+                prompt,
+                replaced: queued_prompt.is_some(),
+            }
         }
-        ThreadAction::Prompt(_) | ThreadAction::Stop if !session.available => {
+        ThreadAction::Prompt(_)
+        | ThreadAction::Stop
+        | ThreadAction::Screen
+        | ThreadAction::Keys(_)
+            if !session.available =>
+        {
             ThreadAction::MarkUnavailable
         }
         action => action,
@@ -295,6 +323,117 @@ mod tests {
                 "U_TEST_OPERATOR",
                 "codex",
             )
+        );
+        assert_eq!(
+            ThreadAction::Screen,
+            thread_action(
+                &ThreadMessage {
+                    text: "pingme screen",
+                    ..base.clone()
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+        assert_eq!(
+            ThreadAction::Keys("y".to_owned()),
+            thread_action(
+                &ThreadMessage {
+                    text: "pingme keys y",
+                    ..base.clone()
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+        assert_eq!(
+            ThreadAction::Keys("C-c".to_owned()),
+            thread_action(
+                &ThreadMessage {
+                    text: "pingme keys C-c",
+                    ..base.clone()
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+        assert_eq!(
+            ThreadAction::Reject("usage: pingme keys <keys>".to_owned()),
+            thread_action(
+                &ThreadMessage {
+                    text: "pingme keys",
+                    ..base.clone()
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+        assert_eq!(
+            ThreadAction::Prompt("please pingme keys y".to_owned()),
+            thread_action(
+                &ThreadMessage {
+                    text: "please pingme keys y",
+                    ..base
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+    }
+
+    #[test]
+    fn keys_and_screen_stay_controls_while_the_session_is_busy() {
+        let mut session = pingme_session::testing::test_session(
+            "codex-project",
+            "%7",
+            Some("1757221923.123456"),
+            "C_TEST_CONTROL",
+            "U_TEST_OPERATOR",
+        );
+        session.status = pingme_session::SessionStatus::Busy;
+        let message = ThreadMessage {
+            channel_id: "C_TEST_CONTROL",
+            thread_ts: Some("1757221923.123456"),
+            user_id: Some("U_TEST_OPERATOR"),
+            text: "pingme keys Enter",
+            has_subtype: false,
+            is_bot: false,
+            event_ts: Some("1757221924.000000"),
+            files: Vec::new(),
+        };
+        let keys = thread_action(&message, "U_TEST_OPERATOR", "codex");
+        assert_eq!(
+            ThreadAction::Keys("Enter".to_owned()),
+            apply_host_routing_policy(&message, &session, keys, 0.0, None)
+        );
+
+        let screen = thread_action(
+            &ThreadMessage {
+                text: "pingme screen",
+                ..message.clone()
+            },
+            "U_TEST_OPERATOR",
+            "codex",
+        );
+        assert_eq!(
+            ThreadAction::Screen,
+            apply_host_routing_policy(&message, &session, screen, 0.0, None)
+        );
+
+        let prompt = thread_action(
+            &ThreadMessage {
+                text: "do the next thing",
+                ..message.clone()
+            },
+            "U_TEST_OPERATOR",
+            "codex",
+        );
+        assert_eq!(
+            ThreadAction::Enqueue {
+                prompt: "do the next thing".to_owned(),
+                replaced: true,
+            },
+            apply_host_routing_policy(&message, &session, prompt, 0.0, Some("earlier"))
         );
     }
 

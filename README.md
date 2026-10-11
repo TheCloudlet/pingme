@@ -54,11 +54,13 @@ In Slack, in the private channel:
 /pingme codex my-project resume <session-id>
 ```
 
-In that session’s thread, type normally. The bot replies `(ping grok)` or `(ping codex)` when the prompt has been pasted into the Agent CLI. The answer arrives as `(pong grok)` or `(pong codex)`, then the body. Rejected prompts are `(reject grok busy)`, `(reject grok stale)`, `(reject grok unauthorized)`, or `(reject grok unavailable)`.
+In that session’s thread, type normally. The bot replies `(ping grok)` or `(ping codex)` when the prompt has been pasted into the Agent CLI. While the turn runs, that receipt updates in place (`(ping grok) ⏳ working 2m`), and ends as `✓ done` or `■ stopped`. If the pane stops changing for a minute, a new message (so your phone notifies) shows the bottom of the screen: usually a question for you. The answer arrives as a new message, `(pong grok)` or `(pong codex)`, then the body. A long answer keeps its opening in the message and attaches the full text. A prompt sent while the session is busy is `(queued grok)` or `(queued codex)` and runs when the turn ends. A second one replaces the first. Rejected prompts are `(reject grok stale)`, `(reject grok unauthorized)`, or `(reject grok unavailable)`.
 
 Thread controls (type these as the whole message):
 
-- `pingme stop` — interrupt work without ending the session
+- `pingme stop` — interrupt work without ending the session, and drop a queued prompt
+- `pingme screen` — post the last lines of the pane
+- `pingme keys <keys>` — send keys to the pane (`y`, `2`, `Enter`, `Escape`, `C-c`), separated by spaces; type a space as `Space`. This works while the session is busy and is not a new prompt
 - `pingme name` — show the session name
 - `pingme rename new-name` — rename the session
 
@@ -69,7 +71,7 @@ Paste a photo (png, jpeg, and other images). The Agent CLI gets a **local file p
 - Only you. Anyone else in the channel is ignored.
 - Messages sent while this computer is offline are dropped. They are not delivered later.
 - Photos become paths on this computer.
-- One prompt at a time. If the session is busy, a second prompt is rejected.
+- One prompt runs at a time. A prompt sent while the session is busy waits, and only the latest waiting prompt is kept. `pingme stop` drops it. The queue lives in the Host daemon; restarting the daemon drops it.
 - The first `pingme grok` writes `~/.grok/hooks/pingme.json`. It will not replace a different file already there.
 
 ## Security

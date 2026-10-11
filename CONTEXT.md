@@ -64,9 +64,11 @@ _Avoid_: Resume, reconnect
 
 **Session Update**:
 Operator-facing information from an Agent Session, posted in its Session
-Thread: a prompt receipt (`(ping <agent>)`), a final response (`(pong <agent>)`),
-a prompt typed in the terminal, a rejection (`(reject <agent> <reason>)`), an
-error, or a status change on the root message.
+Thread: a prompt receipt (`(ping <agent>)`) edited in place while the turn
+runs, a waiting notice when the pane stops changing, a final response
+(`(pong <agent>)`), a prompt typed in the terminal, a queued prompt
+(`(queued <agent>)`), a rejection (`(reject <agent> <reason>)`), an error, or
+a status change on the root message.
 _Avoid_: Transcript, event, stream
 
 **Slack Bridge Command**:
@@ -75,9 +77,11 @@ A Slack slash command owned by pingme. Slack Bridge Commands start with
 _Avoid_: Prompt, Agent CLI command, provider slash command
 
 **Thread Control Message**:
-A normal Slack message inside a Session Thread: `pingme stop`, `pingme name`,
-or `pingme rename <name>`. Slash commands are not available inside Session
-Threads, so these are ordinary messages rather than `/pingme` invocations.
+A normal Slack message inside a Session Thread: `pingme stop`, `pingme screen`,
+`pingme keys <keys>`, `pingme name`, or `pingme rename <name>`. Slash commands
+are not available inside Session Threads, so these are ordinary messages rather
+than `/pingme` invocations. `pingme keys` sends those keys to the pane and is
+not a prompt.
 _Avoid_: Slack slash command, prompt
 
 **Stop**:
@@ -94,8 +98,10 @@ _Avoid_: Deleted session, orphan, stale session
 
 **Busy Session**:
 An Agent Session with active work in progress, from a pasted prompt until the
-Agent CLI reports the turn finished. It accepts control actions but rejects new
-work (`(reject <agent> busy)`) rather than queuing it.
+Agent CLI reports the turn finished. It accepts control actions, including
+`pingme keys`. It holds at most one queued prompt (`(queued <agent>)`) and
+runs that prompt when the turn ends. A second queued prompt replaces the first.
+`pingme stop` clears the queue.
 _Avoid_: Running process, queued session
 
 **Unbridged CLI Session**:
