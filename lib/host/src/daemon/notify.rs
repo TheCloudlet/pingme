@@ -41,8 +41,15 @@ fn notify_daemon(args: &[String]) -> Result<(), String> {
             .ok_or_else(|| "notify payload is missing".to_owned())?
             .to_owned()
     };
-    let mut stream = StdUnixStream::connect(socket_path)
-        .map_err(|error| format!("failed to connect daemon notify socket: {error}"))?;
+    // A dead daemon would drop this turn silently (hooks ignore failures), so start it.
+    let mut stream = match StdUnixStream::connect(&socket_path) {
+        Ok(stream) => stream,
+        Err(_) => {
+            crate::socket::ensure_host_daemon()?;
+            StdUnixStream::connect(&socket_path)
+                .map_err(|error| format!("failed to connect daemon notify socket: {error}"))?
+        }
+    };
     stream
         .write_all(
             serde_json::json!({ "token": token, "agent_cli": agent_cli, "notification": notification })

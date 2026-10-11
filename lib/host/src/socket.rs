@@ -1,5 +1,6 @@
 use std::fs::OpenOptions;
 use std::os::unix::net::UnixStream as StdUnixStream;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::{env, fs};
 
@@ -32,6 +33,8 @@ pub(crate) fn ensure_host_daemon() -> Result<(), String> {
         .map_err(|error| format!("failed to duplicate Host daemon log handle: {error}"))?;
     let mut child = Command::new(executable)
         .arg("daemon")
+        // Its own process group: closing the pane that started it must not end it.
+        .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_stderr))
