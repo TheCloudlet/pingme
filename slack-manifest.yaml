@@ -1,5 +1,5 @@
 # Paste into https://api.slack.com/apps?new_app=1 -> From a manifest.
-# Keep these scopes in step with REQUIRED_BOT_SCOPES in src/lib.rs (`pingme doctor` checks them).
+# Keep these scopes in step with REQUIRED_BOT_SCOPES in tools/pingme/src/cli/doctor.rs (`pingme doctor` checks them).
 display_information:
   name: pingme
   description: Drive Codex CLI or Grok Build on this computer from a private Slack channel

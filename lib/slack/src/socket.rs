@@ -454,7 +454,9 @@ async fn run_connection(
                             // spins into a reconnect storm that burns the API rate
                             // limit. Drop this connection first and let the normal
                             // backed-off Down/Rebuilding path reconnect.
-                            eprintln!("Slack Socket Mode has too many open websockets, backing off");
+                            eprintln!(
+                                "Slack Socket Mode has too many open websockets, backing off"
+                            );
                             let _ = events.send(ConnEvent::Died(id));
                             return;
                         }
@@ -481,9 +483,11 @@ fn unix_seconds() -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
     use tokio::sync::oneshot;
+
+    use super::*;
 
     struct TestDialer {
         requests: mpsc::UnboundedSender<oneshot::Sender<Result<SocketEnds, String>>>,

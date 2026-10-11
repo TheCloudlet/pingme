@@ -1,0 +1,19 @@
+[package]
+name = "pingme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pingme-agent = { path = "../../lib/agent" }
+pingme-host = { path = "../../lib/host" }
+pingme-routing = { path = "../../lib/routing" }
+pingme-session = { path = "../../lib/session" }
+pingme-setting = { path = "../../lib/setting" }
+pingme-slack = { path = "../../lib/slack" }
+pingme-tmux = { path = "../../lib/tmux" }
+
+[dev-dependencies]
+pingme-session = { path = "../../lib/session", features = ["testing"] }

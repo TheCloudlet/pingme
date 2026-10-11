@@ -1,0 +1,15 @@
+[package]
+name = "pingme-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pingme-session = { path = "../session" }
+pingme-support = { path = "../support" }
+serde_json.workspace = true
+
+[dev-dependencies]
+pingme-session = { path = "../session", features = ["testing"] }

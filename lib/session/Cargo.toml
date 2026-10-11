@@ -1,0 +1,14 @@
+[package]
+name = "pingme-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Exposes testing::test_session to other crates' tests.
+testing = []
+
+[dependencies]
+pingme-support = { path = "../support" }

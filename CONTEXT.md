@@ -15,6 +15,12 @@ The sole person authorized to control the bridge. The first version has exactly
 one Operator, identified by fixed Slack workspace and member IDs.
 _Avoid_: User, admin, member
 
+**Host Daemon**:
+The one background `pingme daemon` process per Host. It holds the Slack Socket
+Mode connection, receives Agent CLI turn notifications on a local socket, and
+watches tmux panes for ended Agent Sessions. Local launches start it on demand.
+_Avoid_: Server, bot, worker
+
 **Agent CLI**:
 A command-line coding agent through which the Operator conducts coding work.
 _Avoid_: Provider, backend, arbitrary CLI
@@ -57,8 +63,10 @@ existing Agent Session's tmux pane.
 _Avoid_: Resume, reconnect
 
 **Session Update**:
-Operator-facing information from an Agent Session: a submitted prompt, final
-response, pending approval, error, or status change.
+Operator-facing information from an Agent Session, posted in its Session
+Thread: a prompt receipt (`(ping <agent>)`), a final response (`(pong <agent>)`),
+a prompt typed in the terminal, a rejection (`(reject <agent> <reason>)`), an
+error, or a status change on the root message.
 _Avoid_: Transcript, event, stream
 
 **Slack Bridge Command**:
@@ -77,12 +85,6 @@ An Operator request to interrupt the active work without ending its Agent
 Session.
 _Avoid_: Kill, terminate, end session
 
-**Permission Mode**:
-The Agent CLI's current policy for approving local actions. The Agent CLI is its
-sole source of truth; the bridge only relays Operator requests and observed
-state, and each Agent CLI retains its native set of modes.
-_Avoid_: Approval version, bridge permission
-
 **Unavailable Session**:
 An Agent Session whose Agent CLI can no longer accept input. After posting that
 the TUI ended, the bridge deletes the bot-authored Session Thread root. Explicit
@@ -91,14 +93,10 @@ Operator-authored replies remain.
 _Avoid_: Deleted session, orphan, stale session
 
 **Busy Session**:
-An Agent Session with active work in progress. It accepts control actions but
-rejects new work rather than queuing it.
+An Agent Session with active work in progress, from a pasted prompt until the
+Agent CLI reports the turn finished. It accepts control actions but rejects new
+work (`(reject <agent> busy)`) rather than queuing it.
 _Avoid_: Running process, queued session
-
-**Pending Approval**:
-A Busy Session paused until the Operator approves, denies, or stops a proposed
-action. It does not expire automatically.
-_Avoid_: Timeout, queued approval
 
 **Unbridged CLI Session**:
 A local Agent CLI conversation started while the bridge was unavailable. It has

@@ -1,13 +1,17 @@
 use std::collections::BTreeMap;
-use std::env;
-use std::fs;
 use std::io::Write as _;
 use std::process::ExitCode;
+use std::{env, fs};
 
-use pingme::{
-    RealServices, attach_or_switch_agent_tui, current_tmux_pane, run_cli_with_services,
-    run_daemon_process, run_notify_process, setting_path,
-};
+mod cli;
+
+use cli::run_cli_with_services;
+use pingme_host::daemon::notify::run_notify_process;
+use pingme_host::daemon::run_daemon_process;
+use pingme_host::services::RealServices;
+use pingme_setting::setting_path;
+use pingme_tmux::attach::attach_or_switch_agent_tui;
+use pingme_tmux::pane::current_tmux_pane;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
@@ -15,7 +19,7 @@ fn main() -> ExitCode {
         return run_notify_process(&args);
     }
     if args.get(1).is_some_and(|arg| arg == "daemon") {
-        return run_daemon_process(&args);
+        return run_daemon_process();
     }
 
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -38,7 +42,7 @@ fn main() -> ExitCode {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     if let Some(session) = &result.attachment
-        && let Err(error) = attach_or_switch_agent_tui(session, &mut services)
+        && let Err(error) = attach_or_switch_agent_tui(session)
     {
         eprintln!("failed to show Agent CLI: {error}");
         return ExitCode::from(2);
@@ -62,14 +66,6 @@ fn env_values() -> BTreeMap<&'static str, String> {
             env::current_dir()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|_| ".".to_owned()),
-        ),
-        (
-            "PINGME_SELF_TEST",
-            env::var("PINGME_SELF_TEST").unwrap_or_default(),
-        ),
-        (
-            "PINGME_STATUS_FILE",
-            env::var("PINGME_STATUS_FILE").unwrap_or_default(),
         ),
         (
             "TMUX",

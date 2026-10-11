@@ -596,13 +596,88 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pingme"
 version = "0.1.0"
 dependencies = [
- "futures-util",
+ "pingme-agent",
+ "pingme-host",
+ "pingme-routing",
+ "pingme-session",
+ "pingme-setting",
+ "pingme-slack",
+ "pingme-tmux",
+]
+
+[[package]]
+name = "pingme-agent"
+version = "0.1.0"
+dependencies = [
+ "pingme-session",
+ "pingme-support",
+ "serde_json",
+]
+
+[[package]]
+name = "pingme-host"
+version = "0.1.0"
+dependencies = [
+ "pingme-agent",
+ "pingme-routing",
+ "pingme-session",
+ "pingme-setting",
+ "pingme-slack",
+ "pingme-support",
+ "pingme-tmux",
  "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pingme-routing"
+version = "0.1.0"
+dependencies = [
+ "pingme-session",
+ "pingme-setting",
+]
+
+[[package]]
+name = "pingme-session"
+version = "0.1.0"
+dependencies = [
+ "pingme-support",
+]
+
+[[package]]
+name = "pingme-setting"
+version = "0.1.0"
+dependencies = [
  "serde",
+ "toml",
+]
+
+[[package]]
+name = "pingme-slack"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "pingme-routing",
+ "pingme-session",
+ "pingme-setting",
+ "reqwest",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
- "toml",
+]
+
+[[package]]
+name = "pingme-support"
+version = "0.1.0"
+
+[[package]]
+name = "pingme-tmux"
+version = "0.1.0"
+dependencies = [
+ "pingme-agent",
+ "pingme-session",
+ "pingme-support",
 ]
 
 [[package]]

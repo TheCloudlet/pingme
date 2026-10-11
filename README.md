@@ -20,7 +20,7 @@ You do not need a company Slack. A personal workspace is enough. Create one if y
 - A Slack workspace (create one during setup if needed)
 - `tmux`
 - `codex` and/or `grok` already installed and logged in
-- Rust 1.88+ (`cargo`) to install this binary. Edition 2024 will not build on an older `rustc`.
+- Rust 1.89+ (`cargo`) to install this binary. Older `rustc` will not build it.
 
 The binary is `pingme`. Homebrew already has a different `pingme` ([kha7iq/pingme](https://github.com/kha7iq/pingme)). GitHub can keep this repo name; `cargo install` / `$PATH` cannot share that command.
 
@@ -81,6 +81,26 @@ This is a remote control for coding agents on this computer. A sentence in Slack
 - Keep `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` in the environment. Never commit them. `setting.toml` is gitignored; do not put tokens there either.
 - Messages sent while this computer is offline are dropped. They are not delivered later.
 - Photos you paste become ordinary files on this computer.
+
+## Working on pingme
+
+pingme is a Cargo workspace laid out like LLVM: libraries under `lib/`, the binary under `tools/`. Each library may only depend on libraries above it in this list.
+
+| Crate | Path | Owns |
+|---|---|---|
+| `pingme-support` | `lib/support` | Running tmux, shell quoting |
+| `pingme-setting` | `lib/setting` | `setting.toml` |
+| `pingme-session` | `lib/session` | The Agent Session and its tmux registry |
+| `pingme-routing` | `lib/routing` | What an Operator message or `/pingme` means (pure) |
+| `pingme-agent` | `lib/agent` | Codex CLI and Grok Build commands, hooks, turn notifications |
+| `pingme-tmux` | `lib/tmux` | Spawning, pasting into, and attaching Agent CLI panes |
+| `pingme-slack` | `lib/slack` | Web API calls, Socket Mode payloads, the Socket Mode connection |
+| `pingme-host` | `lib/host` | The `LocalServices` seam, Agent Session launch, the Host Daemon |
+| `pingme` | `tools/pingme` | The `pingme` binary and its commands |
+
+[`CONTEXT.md`](CONTEXT.md) defines the domain terms. `cargo test --workspace` needs neither Slack nor tmux.
+
+Upgrading `pingme` while Agent Sessions are running drops them from `pingme list` and Slack if the tmux registry fields changed; end them first.
 
 ## License
 

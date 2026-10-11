@@ -16,7 +16,7 @@ which cargo
 rustc --version
 ```
 
-`which` should print a path. If it prints nothing, open a new terminal and try again. `rustc --version` must be **1.88 or newer** (this crate uses edition 2024). If it is older, run `rustup update stable` and open a new terminal.
+`which` should print a path. If it prints nothing, open a new terminal and try again. `rustc --version` must be **1.89 or newer** (this crate uses edition 2024 and `File::lock`). If it is older, run `rustup update stable` and open a new terminal.
 
 tmux (keeps the Agent CLI alive if you disconnect):
 
@@ -175,7 +175,7 @@ Add one `[[projects]]` block per folder you will launch from Slack. Local `pingm
 Still in the clone folder:
 
 ```sh
-cargo install --path .
+cargo install --path tools/pingme
 which pingme
 ```
 
