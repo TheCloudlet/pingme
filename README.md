@@ -107,10 +107,12 @@ pingme is a Cargo workspace laid out like LLVM: libraries under `lib/`, the bina
 | `pingme-agent` | `lib/agent` | Codex CLI and Grok Build commands, hooks, turn notifications |
 | `pingme-tmux` | `lib/tmux` | Spawning, pasting into, and attaching Agent CLI panes |
 | `pingme-slack` | `lib/slack` | Web API calls, Socket Mode payloads, the Socket Mode connection |
-| `pingme-host` | `lib/host` | The `LocalServices` seam, Agent Session launch, the Host Daemon |
+| `pingme-host` | `lib/host` | The `LocalServices` seam, Agent Session launch, the Host Daemon and its `Effects` seam |
 | `pingme` | `tools/pingme` | The `pingme` binary and its commands |
 
 [`CONTEXT.md`](CONTEXT.md) defines the domain terms. `cargo test --workspace` needs neither Slack nor tmux.
+
+The Host Daemon's thread, turn, and progress handlers reach tmux, Slack, and the clock only through `Effects` (`lib/host/src/daemon/effects.rs`). `lib/host/src/daemon/stories.rs` replays a recorded Slack message, pane polls, and a Grok Stop notification, and asserts what the Session Thread shows, in order. A change to the turn or the queue starts there. What the Agent CLI does with a key (for example, whether Escape cancels) still needs a run against the real CLI.
 
 Upgrading `pingme` while Agent Sessions are running drops them from `pingme list` and Slack if the tmux registry fields changed; end them first.
 

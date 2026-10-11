@@ -128,21 +128,22 @@ impl AgentSession {
         Ok(())
     }
 
+    /// The fields a turn changes. Never `session_name`, which publishes the pane.
+    pub fn write_turn_state(&self) -> Result<(), String> {
+        self.write_field(
+            "last_slack_prompt",
+            self.last_slack_prompt.as_deref().unwrap_or(""),
+        )?;
+        self.write_field(
+            "mirrored_terminal_count",
+            &self.mirrored_terminal_count.to_string(),
+        )?;
+        self.write_field("status", self.status.as_str())
+    }
+
     pub fn write_status(&mut self, status: SessionStatus) -> Result<(), String> {
         self.write_field("status", status.as_str())?;
         self.status = status;
-        Ok(())
-    }
-
-    pub fn write_last_slack_prompt(&mut self, fingerprint: Option<String>) -> Result<(), String> {
-        self.write_field("last_slack_prompt", fingerprint.as_deref().unwrap_or(""))?;
-        self.last_slack_prompt = fingerprint;
-        Ok(())
-    }
-
-    pub fn write_mirrored_terminal_count(&mut self, count: usize) -> Result<(), String> {
-        self.write_field("mirrored_terminal_count", &count.to_string())?;
-        self.mirrored_terminal_count = count;
         Ok(())
     }
 

@@ -7,12 +7,10 @@ use pingme_agent::turn::{FinishedTurn, finished_turn};
 use pingme_routing::update::{session_update_after_agent_turn, session_update_turn};
 use pingme_session::{AgentSession, SessionStatus};
 use pingme_setting::HostSettings;
-use pingme_slack::api::{
-    post_session_text, post_thread_reply, update_status_card, update_thread_reply,
-};
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
 
+use super::effects::{Effects, post_long, reply};
 use super::runtime::{EndedTurn, LiveSessions};
 
 pub fn run_notify_process(args: &[String]) -> ExitCode {
@@ -85,7 +83,7 @@ pub(crate) async fn read_agent_notification(
 }
 
 pub(crate) fn handle_host_notification(
-    bot_token: &str,
+    host: &mut impl Effects,
     setting: &HostSettings,
     notification: &Value,
     live: &mut LiveSessions,
@@ -93,7 +91,7 @@ pub(crate) fn handle_host_notification(
     let Some(token) = notification.get("token").and_then(Value::as_str) else {
         return Ok(());
     };
-    let sessions = AgentSession::list_from_registry()?;
+    let sessions = host.sessions()?;
     let Some(session) = sessions.iter().find(|session| {
         session.control_channel == setting.slack.control_channel_id
             && session.notify_token.as_deref() == Some(token)
@@ -101,15 +99,15 @@ pub(crate) fn handle_host_notification(
         return Ok(());
     };
     let mut session = session.clone();
-    if let Err(error) = handle_agent_notification(bot_token, &mut session, notification, live) {
-        let _ = post_thread_reply(bot_token, &session, &format!("Bridge error: {error}"));
+    if let Err(error) = handle_agent_notification(host, &mut session, notification, live) {
+        let _ = reply(host, &session, &format!("Bridge error: {error}"));
         return Err(error);
     }
     Ok(())
 }
 
 fn handle_agent_notification(
-    bot_token: &str,
+    host: &mut impl Effects,
     session: &mut AgentSession,
     notification: &Value,
     live: &mut LiveSessions,
@@ -131,42 +129,42 @@ fn handle_agent_notification(
     };
 
     let pane = session.pane()?.to_owned();
-    let ended = live.finish_turn(&pane);
+    let ended = live.finish_turn(&pane, host.now());
     // Taken before anything can fail, so a queued prompt never waits behind an Idle Session.
     let queued = live.take_queued(&pane);
-    session.write_last_slack_prompt(None)?;
-    session.write_mirrored_terminal_count(turn.terminal_input_count)?;
-    session.write_status(SessionStatus::Idle)?;
-    let posted = post_turn(bot_token, session, &turn, ended);
+    session.last_slack_prompt = None;
+    session.mirrored_terminal_count = turn.terminal_input_count;
+    session.status = SessionStatus::Idle;
+    let saved = host.save(session);
+    let posted = post_turn(host, session, &turn, ended);
     if let Some(prompt) = queued {
-        super::thread::submit_prompt(bot_token, session, prompt, &[], live)?;
+        super::thread::submit_prompt(host, session, prompt, &[], live)?;
     }
-    posted
+    saved.and(posted)
 }
 
 fn post_turn(
-    bot_token: &str,
+    host: &mut impl Effects,
     session: &AgentSession,
     turn: &FinishedTurn<'_>,
     ended: Option<EndedTurn>,
 ) -> Result<(), String> {
-    update_status_card(bot_token, session)?;
     if let Some(ended) = ended
         && let Some(ts) = ended.receipt_ts
     {
         let text = session_update_turn(&session.agent_cli, "✓ done", ended.elapsed);
-        let _ = update_thread_reply(bot_token, session, &ts, &text);
+        let _ = host.edit(session, &ts, &text);
     }
     for prompt in &turn.terminal_prompts {
-        post_session_text(
-            bot_token,
+        post_long(
+            host,
             session,
             &format!("*You (terminal)*\n{prompt}"),
             "terminal.txt",
         )?;
     }
-    post_session_text(
-        bot_token,
+    post_long(
+        host,
         session,
         &session_update_after_agent_turn(&session.agent_cli, turn.response),
         "answer.txt",

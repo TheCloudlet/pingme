@@ -86,22 +86,7 @@ pub fn update_thread_reply(
     )?)
 }
 
-/// Posts `text`, and when it does not fit, uploads the full text in the same thread.
-pub fn post_session_text(
-    bot_token: &str,
-    session: &AgentSession,
-    text: &str,
-    filename: &str,
-) -> Result<(), String> {
-    let outbound = outbound_text(text);
-    post_thread_reply(bot_token, session, &outbound.message)?;
-    if let Some(body) = outbound.file_body {
-        upload_thread_file(bot_token, session, filename, &body)?;
-    }
-    Ok(())
-}
-
-fn upload_thread_file(
+pub fn upload_thread_file(
     bot_token: &str,
     session: &AgentSession,
     filename: &str,

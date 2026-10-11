@@ -1,13 +1,9 @@
 // ponytail: O(n^2) over local Sessions; index by pane ID if a Host reaches hundreds.
-use std::time::SystemTime;
-
 use pingme_routing::update::{agent_display_name, session_update_turn, session_update_waiting};
 use pingme_session::{AgentSession, SessionStatus};
-use pingme_slack::api::{
-    SLACK_TEXT_LIMIT, delete_thread_root, post_thread_reply, update_thread_reply,
-};
-use pingme_tmux::pane::capture_pane;
+use pingme_slack::api::{SLACK_TEXT_LIMIT, delete_thread_root, post_thread_reply};
 
+use super::effects::{Effects, TmuxSlack, reply};
 use super::runtime::LiveSessions;
 
 fn ended_agent_sessions(known: &[AgentSession], current: &[AgentSession]) -> Vec<AgentSession> {
@@ -82,12 +78,16 @@ pub(crate) fn monitor_agent_sessions(
         record_unavailable(&mut current, session);
     }
     *known = current;
-    refresh_busy_progress(bot_token, known, live);
+    refresh_busy_progress(&mut TmuxSlack { bot_token }, known, live);
     Ok(())
 }
 
-fn refresh_busy_progress(bot_token: &str, sessions: &[AgentSession], live: &mut LiveSessions) {
-    let now = SystemTime::now();
+pub(crate) fn refresh_busy_progress(
+    host: &mut impl Effects,
+    sessions: &[AgentSession],
+    live: &mut LiveSessions,
+) {
+    let now = host.now();
     for session in sessions {
         if !session.available || session.status != SessionStatus::Busy {
             continue;
@@ -98,15 +98,15 @@ fn refresh_busy_progress(bot_token: &str, sessions: &[AgentSession], live: &mut 
         if !live.has_turn(pane) {
             continue;
         }
-        let Ok(screen) = capture_pane(pane) else {
+        let Ok(screen) = host.capture(pane) else {
             continue;
         };
         let Some(progress) = live.step(pane, now, &screen) else {
             continue;
         };
         if progress.waiting
-            && let Err(error) = post_thread_reply(
-                bot_token,
+            && let Err(error) = reply(
+                host,
                 session,
                 &session_update_waiting(&screen, SLACK_TEXT_LIMIT),
             )
@@ -114,8 +114,7 @@ fn refresh_busy_progress(bot_token: &str, sessions: &[AgentSession], live: &mut 
             eprintln!("failed to post waiting notice: {error}");
         }
         if let Some((ts, elapsed)) = progress.edit
-            && let Err(error) = update_thread_reply(
-                bot_token,
+            && let Err(error) = host.edit(
                 session,
                 &ts,
                 &session_update_turn(&session.agent_cli, "⏳ working", elapsed),

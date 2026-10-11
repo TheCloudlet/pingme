@@ -17,6 +17,7 @@ use tokio::task::block_in_place;
 use tokio::time::MissedTickBehavior;
 
 use crate::daemon::control::handle_control_command;
+use crate::daemon::effects::TmuxSlack;
 use crate::daemon::monitor::monitor_agent_sessions;
 use crate::daemon::notify::{handle_host_notification, read_agent_notification};
 use crate::daemon::runtime::LiveSessions;
@@ -24,9 +25,12 @@ use crate::daemon::thread::handle_slack_event;
 use crate::socket::host_notify_socket_path;
 
 mod control;
+mod effects;
 pub mod monitor;
 pub mod notify;
 mod runtime;
+#[cfg(test)]
+mod stories;
 mod thread;
 
 pub fn run_daemon_process() -> ExitCode {
@@ -109,7 +113,7 @@ async fn run_host_daemon() -> Result<(), String> {
                 };
                 if let Err(error) = block_in_place(|| {
                     handle_host_notification(
-                        &bot_token,
+                        &mut TmuxSlack { bot_token: &bot_token },
                         &setting,
                         &notification,
                         &mut live,
@@ -143,7 +147,13 @@ fn handle_envelope(
 ) -> Result<(), String> {
     match envelope.get("type").and_then(Value::as_str) {
         Some("slash_commands") => handle_control_command(bot_token, setting, envelope),
-        Some("events_api") => handle_slack_event(bot_token, setting, started_at, envelope, live),
+        Some("events_api") => handle_slack_event(
+            &mut TmuxSlack { bot_token },
+            setting,
+            started_at,
+            envelope,
+            live,
+        ),
         _ => Ok(()),
     }
 }

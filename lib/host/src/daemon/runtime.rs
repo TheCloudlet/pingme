@@ -69,11 +69,11 @@ impl LiveSessions {
         );
     }
 
-    pub(crate) fn finish_turn(&mut self, pane: &str) -> Option<EndedTurn> {
+    pub(crate) fn finish_turn(&mut self, pane: &str, now: SystemTime) -> Option<EndedTurn> {
         let turn = self.turns.remove(pane)?;
         Some(EndedTurn {
             receipt_ts: turn.receipt_ts,
-            elapsed: since(SystemTime::now(), turn.started_at),
+            elapsed: since(now, turn.started_at),
         })
     }
 
