@@ -26,7 +26,7 @@ The binary is `pingme`. Homebrew already has a different `pingme` ([kha7iq/pingm
 
 ## Setup
 
-Follow **[docs/setup.md](docs/setup.md)** to create the workspace (if needed), the private channel, and the Slack app, then type one sentence in Slack and see it land in the Agent CLI on this computer.
+Follow **[docs/setup.md](docs/setup.md)** to create the workspace (if needed), the private channel, and the Slack app (from [`slack-manifest.yaml`](slack-manifest.yaml)), then type one sentence in Slack and see it land in the Agent CLI on this computer.
 
 ## Everyday use (after setup)
 
@@ -40,9 +40,10 @@ pingme codex resume <session-id>
 pingme list
 pingme attach <session-name>
 pingme cleanup
+pingme doctor
 ```
 
-Arguments after `grok` or `codex` are passed through to that Agent CLI.
+Arguments after `grok` or `codex` are passed through to that Agent CLI. `pingme doctor` checks the setup and names the piece to fix when Slack does not answer.
 
 In Slack, in the private channel:
 

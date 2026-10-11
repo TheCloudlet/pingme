@@ -1,0 +1,31 @@
+# Paste into https://api.slack.com/apps?new_app=1 -> From a manifest.
+# Keep these scopes in step with REQUIRED_BOT_SCOPES in src/lib.rs (`pingme doctor` checks them).
+display_information:
+  name: pingme
+  description: Drive Codex CLI or Grok Build on this computer from a private Slack channel
+features:
+  bot_user:
+    display_name: pingme
+    always_online: false
+  slash_commands:
+    - command: /pingme
+      description: Start an Agent Session
+      usage_hint: grok my-project or codex my-project
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - commands
+      - files:read
+      - groups:history
+      - groups:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.groups
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

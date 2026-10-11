@@ -74,7 +74,7 @@ A channel is a room. This app needs a **private** one so strangers cannot drive 
 1. In Slack in the browser, click the **plus sign** in the left sidebar.
 2. Select **Channel**. On a paid plan you may see **Blank channel** — pick that (a regular channel, not a template).
 3. Enter a name, for example `pingme`.
-4. Choose **Private** (not public).
+4. Choose **Private** (not public). If you already made it public: channel name → **Settings** → **Change to a private channel**. The Channel ID stays the same.
 5. Click **Create**.
 6. If Slack asks you to add people, add nobody. Click **Skip for now** if that button is there.
 
@@ -100,84 +100,50 @@ Copy two IDs. They look like `C…` and `U…`. You will paste them into `settin
 
 Each computer gets its own Slack app. Do not share this app with another machine.
 
-### Create the app
+### Create the app from the manifest
 
-1. Open [https://api.slack.com/apps](https://api.slack.com/apps).
-2. If you see **You'll need to sign in to your Slack account**, click **sign in to your Slack account** and finish sign-in.
-3. Open [https://api.slack.com/apps?new_app=1](https://api.slack.com/apps?new_app=1), or click **Create New App** if that button is on **Your Apps**.
-4. A dialog **Create an app** asks how to configure scopes. Click **From scratch** (not **From a manifest**).
-5. Heading becomes **Name app & choose workspace**.
-6. **App Name**: type `pingme` (placeholder on the form is `e.g. Super Service`). You can change the name later.
-7. **Pick a workspace to develop your app in:** choose the workspace from step 2. You cannot move the app later.
-8. Click **Create App**.
+The manifest in this repo, [`slack-manifest.yaml`](../slack-manifest.yaml), turns on Socket Mode, the bot permissions, the `message.groups` event, and `/pingme` in one paste. Socket Mode means Slack talks to this computer over a websocket; you do not host a URL.
 
-### Socket Mode (no public website)
+1. Open [https://api.slack.com/apps?new_app=1](https://api.slack.com/apps?new_app=1). If Slack asks you to sign in, do that first.
+2. A dialog **Create an app** opens. If it shows templates first, pick **From a manifest** and click **Continue**; otherwise click **From a manifest**.
+3. **Pick a workspace** — choose the workspace from step 2. You cannot move the app later. Click **Next**.
+4. Choose the **YAML** tab (Slack opens on **JSON**), delete what is there, and paste the whole of `slack-manifest.yaml`. Click **Next**.
+5. Review the summary and click **Create**.
 
-Socket Mode means Slack talks to this computer over a websocket. You do not host a URL.
+The manifest grants these bot permissions:
 
-1. In the left sidebar, **Settings** → **Socket Mode**.
-2. Toggle **Enable Socket Mode** on.
-3. Slack will ask for an app-level token if you do not have one. Or do it by hand:
-   - Left sidebar **Settings** → **Basic Information**.
-   - Scroll to **App-Level Tokens**.
-   - Click **Generate Token and Scopes**.
-   - Name it anything, for example `socket`.
-   - Click **Add Scope** and choose `connections:write`.
-   - Click **Generate**.
-   - Copy the token. It starts with `xapp-`. That is `SLACK_APP_TOKEN`. Keep it out of git.
+| Scope            | Why                                              |
+|------------------|--------------------------------------------------|
+| `chat:write`     | Post, update, and delete messages in the channel |
+| `commands`       | The `/pingme` slash command                      |
+| `files:read`     | Download photos you paste                        |
+| `groups:history` | Read messages in the private channel             |
+| `groups:read`    | See the private channel                          |
 
-### Bot permissions
+### App-level token (`SLACK_APP_TOKEN`)
+
+1. Left sidebar **Settings** → **Basic Information**.
+2. Scroll to **App-Level Tokens** and click **Generate Token and Scopes**.
+3. Name it anything, for example `socket`.
+4. Click **Add Scope** and choose `connections:write`.
+5. Click **Generate**.
+6. Copy the token. It starts with `xapp-`. That is `SLACK_APP_TOKEN`. Keep it out of git.
+
+### Install and copy the bot token (`SLACK_BOT_TOKEN`)
 
 1. Left sidebar **Features** → **OAuth & Permissions**.
-2. Scroll to **Scopes** → **Bot Token Scopes**.
-3. Click **Add an OAuth Scope** for each of these (search the name, pick it):
+2. Click **Install to Workspace**, then **Allow**.
+3. Copy **Bot User OAuth Token**. It starts with `xoxb-`. That is `SLACK_BOT_TOKEN`. Keep it out of git.
 
-   | Scope            | Why                                              |
-   |------------------|--------------------------------------------------|
-   | `chat:write`     | Post, update, and delete messages in the channel |
-   | `commands`       | The `/pingme` slash command                      |
-   | `files:read`     | Download photos you paste                        |
-   | `groups:history` | Read messages in the private channel             |
-   | `groups:read`    | See the private channel                          |
-
-4. Scroll to the top of **OAuth & Permissions**.
-5. Click **Install to Workspace** (or **Reinstall to Workspace** if you add scopes later).
-6. Click **Allow**.
-7. On **OAuth & Permissions**, copy **Bot User OAuth Token**. It starts with `xoxb-`. That is `SLACK_BOT_TOKEN`. Keep it out of git.
-
-### Events (so thread messages reach this computer)
-
-1. Left sidebar **Features** → **Event Subscriptions**.
-2. Toggle **Enable Events** on.
-3. Because Socket Mode is on, Slack does **not** ask for a Request URL. Do not turn Socket Mode off to fill one in.
-4. Under **Subscribe to bot events**, click **Add Bot User Event**.
-5. Add `message.groups` (messages in private channels).
-6. Save if Slack shows **Save Changes**.
-
-### Slash command `/pingme`
-
-1. Left sidebar **Features** → **Slash Commands**.
-2. Click **Create New Command**.
-3. Fill in:
-
-   | Field | Value |
-   | --- | --- |
-   | **Command** | `/pingme` |
-   | **Request URL** | If Slack still requires one with Socket Mode on, enter `https://example.com`. The Host daemon receives `/pingme` over the websocket, not that URL. |
-   | **Short Description** | Start an Agent Session |
-   | **Usage Hint** | `grok my-project` or `codex my-project` |
-
-4. Click **Save**.
-
-If you added scopes or events after the first install, open **OAuth & Permissions** and click **Reinstall to Workspace** / **Allow** again.
+If you change scopes later, come back here and click **Reinstall to Workspace** / **Allow** again. `pingme doctor` tells you when a scope is missing.
 
 ### Invite the bot into the private channel
 
 Apps do not join by themselves.
 
 1. Open the private channel from step 3.
-2. In the message box, type `/invite @pingme` (use the app name you chose) and send.
-3. Or: click the channel name → **Integrations** → add the app.
+2. In the message box, type `/invite @ping` and pick **pingme** (marked APP) from the list before you send. Sending the typed text without picking gives **A valid member name is required**.
+3. Or: click the channel name → **Integrations** → **Add apps** → **pingme** → **Add**.
 
 You should see a system line that the app was added. Leave the channel with only you and this bot.
 
@@ -221,6 +187,14 @@ export SLACK_BOT_TOKEN='xoxb-...'
 ```
 
 Use your real tokens. Do not put them in this repo, in `setting.toml`, or in a screenshot.
+
+Check the setup so far, from the clone folder:
+
+```sh
+pingme doctor
+```
+
+Each line is `ok` or `FAIL` with the one thing to fix. It checks `setting.toml`, each Project's `cwd`, both tokens, the bot's permissions, that the bot is in the private channel, and whether the Host daemon is running. Until you finish step 7, `FAIL Host daemon` is expected.
 
 ## 7. First success
 

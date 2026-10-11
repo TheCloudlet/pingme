@@ -10,12 +10,13 @@ use std::process::{Command, ExitCode, Stdio};
 
 use crate::slack_socket::SlackSocketMode;
 use crate::{
-    AgentSession, Bridge, ControlAction, ControlCommand, HostSettings, LocalServices,
-    MAX_SLACK_PHOTO_BYTES, PanePlacement, ProjectSetting, SessionStatus, SlackFile, ThreadAction,
-    ThreadMessage, accepted_slack_photos, agent_display_name, apply_host_routing_policy,
-    control_action, pane_placement, prompt_with_local_photos, render_session_status_card,
-    self_test_message, session_update_after_agent_turn, session_update_after_prompt_paste,
-    session_update_reject, setting_path, slack_file_url_is_downloadable, slack_photo_store_path,
+    AgentSession, Bridge, ControlAction, ControlChannelProbe, ControlCommand, HostSettings,
+    LocalServices, MAX_SLACK_PHOTO_BYTES, PanePlacement, ProjectSetting, SessionStatus, SlackFile,
+    ThreadAction, ThreadMessage, accepted_slack_photos, agent_display_name,
+    apply_host_routing_policy, control_action, pane_placement, prompt_with_local_photos,
+    render_session_status_card, self_test_message, session_update_after_agent_turn,
+    session_update_after_prompt_paste, session_update_reject, setting_path,
+    slack_file_url_is_downloadable, slack_photo_store_path,
 };
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
@@ -208,6 +209,62 @@ impl LocalServices for RealServices {
 
     fn cleanup_sessions(&mut self) -> Result<usize, String> {
         cleanup_agent_sessions(&self.bot_token)
+    }
+
+    fn bot_token_scopes(&mut self) -> Result<Vec<String>, String> {
+        let response = reqwest::blocking::Client::new()
+            .post("https://slack.com/api/auth.test")
+            .bearer_auth(&self.bot_token)
+            .send()
+            .map_err(|error| format!("Slack auth.test failed: {error}"))?;
+        let scopes = response
+            .headers()
+            .get("x-oauth-scopes")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .split(',')
+            .map(|scope| scope.trim().to_owned())
+            .filter(|scope| !scope.is_empty())
+            .collect();
+        let body: Value = response
+            .json()
+            .map_err(|error| format!("Slack auth.test returned invalid JSON: {error}"))?;
+        slack_ok(&body)?;
+        Ok(scopes)
+    }
+
+    fn probe_app_token(&mut self, app_token: &str) -> Result<(), String> {
+        // Asks for a Socket Mode URL without connecting, so the daemon's connection is untouched.
+        let body: Value = reqwest::blocking::Client::new()
+            .post("https://slack.com/api/apps.connections.open")
+            .bearer_auth(app_token)
+            .send()
+            .map_err(|error| format!("Slack apps.connections.open failed: {error}"))?
+            .json()
+            .map_err(|error| {
+                format!("Slack apps.connections.open returned invalid JSON: {error}")
+            })?;
+        slack_ok(&body)
+    }
+
+    fn probe_control_channel(&mut self, channel_id: &str) -> Result<ControlChannelProbe, String> {
+        let body: Value = reqwest::blocking::Client::new()
+            .get("https://slack.com/api/conversations.info")
+            .bearer_auth(&self.bot_token)
+            .query(&[("channel", channel_id)])
+            .send()
+            .map_err(|error| format!("Slack conversations.info failed: {error}"))?
+            .json()
+            .map_err(|error| format!("Slack conversations.info returned invalid JSON: {error}"))?;
+        control_channel_probe(&body)
+    }
+
+    fn project_dir_exists(&mut self, cwd: &str) -> bool {
+        Path::new(cwd).is_dir()
+    }
+
+    fn host_daemon_running(&mut self) -> bool {
+        host_notify_socket_path().is_ok_and(|path| StdUnixStream::connect(path).is_ok())
     }
 }
 
@@ -1285,6 +1342,24 @@ fn post_slack_blocking(
     slack_ok(&response)
 }
 
+fn control_channel_probe(body: &Value) -> Result<ControlChannelProbe, String> {
+    // The bot only holds groups:read, so Slack refuses to describe a public channel.
+    // Membership is unknown here; doctor reports a public channel before membership.
+    let needed = body["needed"].as_str().unwrap_or("");
+    if body["error"] == "missing_scope" && needed.split(',').any(|scope| scope == "channels:read") {
+        return Ok(ControlChannelProbe {
+            is_private: false,
+            is_member: false,
+        });
+    }
+    slack_ok(body)?;
+    let flag = |name| body["channel"][name].as_bool().unwrap_or(false);
+    Ok(ControlChannelProbe {
+        is_private: flag("is_private"),
+        is_member: flag("is_member"),
+    })
+}
+
 fn slack_ok(response: &Value) -> Result<(), String> {
     if response.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(())
@@ -1893,6 +1968,39 @@ fn slack_text(text: &str) -> String {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn a_public_control_channel_reads_as_public_not_as_a_missing_scope() {
+        let body = serde_json::json!({
+            "ok": false,
+            "error": "missing_scope",
+            "needed": "channels:read",
+        });
+
+        assert_eq!(
+            Ok(ControlChannelProbe {
+                is_private: false,
+                is_member: false,
+            }),
+            control_channel_probe(&body)
+        );
+    }
+
+    #[test]
+    fn a_private_control_channel_reports_membership() {
+        let body = serde_json::json!({
+            "ok": true,
+            "channel": { "is_private": true, "is_member": true },
+        });
+
+        assert_eq!(
+            Ok(ControlChannelProbe {
+                is_private: true,
+                is_member: true,
+            }),
+            control_channel_probe(&body)
+        );
+    }
 
     fn recorded_slack_envelopes() -> Value {
         serde_json::from_str(include_str!(
