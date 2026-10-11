@@ -1,8 +1,18 @@
+<p align="center">
+  <img src="docs/img/cover.png" alt="pingme: ship from bed. blame the cat." width="720">
+</p>
+
 # pingme
 
 Talk to **Grok Build** (`grok`) or **Codex CLI** (`codex`) on your computer from a Slack thread.
 
 One person, one machine. Nobody else in that Slack channel can drive it.
+
+<p align="center">
+  <img src="docs/img/slack-thread.png" alt="A Session Thread: a question, the (ping grok) receipt marked done, a waiting-on-you notice showing Grok's approval menu, pingme keys 3, and the answer" width="400">
+</p>
+
+Away from the computer, Grok stops to ask before running `curl`. pingme posts the bottom of the screen so your phone buzzes, you answer with `pingme keys 3`, and the answer comes back in the same thread.
 
 ## Picture (read this first)
 
