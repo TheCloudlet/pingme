@@ -62,7 +62,7 @@ impl LiveSessions {
                 started_at: now,
                 last_edit_at: now,
                 screen_changed_at: now,
-                screen: mask_numbers(screen),
+                screen: stall_signature(screen),
                 wait_posted: false,
                 receipt_ts,
             },
@@ -88,10 +88,9 @@ impl LiveSessions {
 
     pub(crate) fn step(&mut self, pane: &str, now: SystemTime, screen: &str) -> Option<Progress> {
         let turn = self.turns.get_mut(pane)?;
-        // ponytail: Agent CLI spinners animate while working, and a static
-        // approval prompt still ticks a timer, so numbers are masked. An Agent
-        // CLI with a non-animated busy screen would read as waiting.
-        let screen = mask_numbers(screen);
+        // ponytail: relies on the Agent CLI animating a spinner while it works.
+        // One with a static busy line would read as waiting after a minute.
+        let screen = stall_signature(screen);
         if screen != turn.screen {
             turn.screen = screen;
             turn.screen_changed_at = now;
@@ -110,22 +109,28 @@ impl LiveSessions {
     }
 }
 
-/// `5.0s` and `10s` both become `#s`. Space runs collapse too, since a
-/// right-aligned timer shifts its padding when it gains a digit.
-fn mask_numbers(screen: &str) -> String {
-    let mut masked = String::with_capacity(screen.len());
-    let mut prev = ' ';
-    let mut in_number = false;
-    for c in screen.chars() {
-        let numeric = c.is_ascii_digit() || (in_number && matches!(c, '.' | ':'));
-        let repeat = (numeric && in_number) || (c == ' ' && prev == ' ');
-        if !repeat {
-            masked.push(if numeric { '#' } else { c });
+/// The pane, with each line that shows a running timer (`2.7s`, `5m13s`)
+/// cut to its first glyph. That glyph is a spinner while the Agent CLI works
+/// and a static mark while it waits; the timer, its padding, and the label it
+/// truncates change either way.
+fn stall_signature(screen: &str) -> String {
+    let mut signature = String::with_capacity(screen.len());
+    for line in screen.lines() {
+        if has_timer(line) {
+            signature.extend(line.trim_start().chars().next());
+        } else {
+            signature.push_str(line);
         }
-        in_number = numeric;
-        prev = c;
+        signature.push('\n');
     }
-    masked
+    signature
+}
+
+fn has_timer(line: &str) -> bool {
+    let chars: Vec<char> = line.chars().chain([' ']).collect();
+    chars
+        .windows(3)
+        .any(|w| w[0].is_ascii_digit() && w[1] == 's' && !w[2].is_alphanumeric())
 }
 
 fn since(now: SystemTime, then: SystemTime) -> Duration {
@@ -142,8 +147,8 @@ mod tests {
         "⠙ Sleep 25 seconds then print done… 5.6s   8.0s [stop]",
     ];
     const APPROVAL: [&str; 2] = [
-        "◆ Fetch example.com response headers… 4m5s          4m9s ⇣22.4k [stop]\n3 (○) Yes, proceed",
-        "◆ Fetch example.com response headers… 4m6s         4m10s ⇣22.4k [stop]\n3 (○) Yes, proceed",
+        "◆ Fetch example.com HTTP status cod… 5m9s   5m12s ⇣21.4k [stop]\n3 (○) Yes, proceed",
+        "◆ Fetch example.com HTTP status co… 5m10s   5m13s ⇣21.4k [stop]\n3 (○) Yes, proceed",
     ];
 
     fn at(secs: u64) -> SystemTime {
@@ -162,6 +167,14 @@ mod tests {
         assert!(!live.step("%7", at(59), APPROVAL[1]).unwrap().waiting);
         assert!(live.step("%7", at(60), APPROVAL[0]).unwrap().waiting);
         assert!(!live.step("%7", at(90), APPROVAL[1]).unwrap().waiting);
+    }
+
+    #[test]
+    fn only_lines_with_a_running_timer_are_reduced() {
+        assert!(has_timer("⠴ Sleep… 1.6s   4.0s [stop]"));
+        assert!(has_timer("Worked for 5m13s"));
+        assert!(!has_timer("Sleep 25 seconds then print probe2.txt"));
+        assert!(!has_timer("3 (○) Yes, proceed"));
     }
 
     #[test]
