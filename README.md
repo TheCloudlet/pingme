@@ -53,6 +53,8 @@ pingme cleanup
 pingme doctor
 ```
 
+`pingme cleanup` removes unavailable local sessions and old PingMe Session roots in Slack whose tmux mappings are gone. The Host daemon checks for orphaned roots at startup and every ten minutes. Both leave live sessions and recently created roots alone.
+
 Arguments after `grok` or `codex` are passed through to that Agent CLI. `pingme doctor` checks the setup and names the piece to fix when Slack does not answer.
 
 In Slack, in the private channel:

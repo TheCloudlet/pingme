@@ -3,6 +3,7 @@ use std::time::Duration;
 use pingme_session::{AgentSession, SessionStatus};
 
 const PANE_TAIL_LINES: usize = 40;
+pub const SESSION_STATUS_CARD_HEADER: &str = "PingMe Session\n";
 
 pub fn agent_display_name(agent_cli: &str) -> &str {
     match agent_cli {
@@ -19,7 +20,7 @@ pub fn render_session_status_card(session: &AgentSession) -> String {
         SessionStatus::Unavailable
     };
     format!(
-        "PingMe Session\nAgent: {}\nSession: {}\nStatus: {}\nHost: {}\nProject: {}\ncwd: {}\nPane: {}\nThread: {}",
+        "{SESSION_STATUS_CARD_HEADER}Agent: {}\nSession: {}\nStatus: {}\nHost: {}\nProject: {}\ncwd: {}\nPane: {}\nThread: {}",
         session.agent_cli,
         session.session_name,
         status.as_str(),

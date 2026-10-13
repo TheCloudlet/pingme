@@ -147,7 +147,9 @@ fn publish_ended_agent_session(
     if session.thread_ts.is_none() {
         return Ok(());
     }
-    post_tui_ended(session)?;
+    if let Err(error) = post_tui_ended(session) {
+        eprintln!("failed to post TUI ended notice: {error}");
+    }
     delete_thread_root(session)
 }
 
@@ -210,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_tui_ended_preserves_the_session_thread_root() {
+    fn failed_tui_ended_still_deletes_the_session_thread_root() {
         let session = test_session("codex-project", "%7", Some("100.1"), "C1", "U1");
         let deleted = RefCell::new(false);
 
@@ -223,8 +225,21 @@ mod tests {
             },
         );
 
+        assert_eq!(Ok(()), result);
+        assert!(*deleted.borrow());
+    }
+
+    #[test]
+    fn failed_root_deletion_is_reported_for_retry() {
+        let session = test_session("codex-project", "%7", Some("100.1"), "C1", "U1");
+
+        let result = publish_ended_agent_session(
+            &session,
+            |_| Ok(()),
+            |_| Err("Slack API error: ratelimited".to_owned()),
+        );
+
         assert_eq!(Err("Slack API error: ratelimited".to_owned()), result);
-        assert!(!*deleted.borrow());
     }
 
     #[test]

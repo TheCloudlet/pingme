@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 use pingme_routing::photo::{MAX_SLACK_PHOTO_BYTES, SlackFile, slack_file_url_is_downloadable};
-use pingme_routing::update::render_session_status_card;
+use pingme_routing::update::{SESSION_STATUS_CARD_HEADER, render_session_status_card};
 use pingme_session::{AgentSession, SessionStatus};
 use serde_json::Value;
 
@@ -157,14 +158,94 @@ pub fn update_status_card_to(
 }
 
 pub fn delete_thread_root(bot_token: &str, session: &AgentSession) -> Result<(), String> {
-    slack_delete_ok(&slack_chat(
-        bot_token,
-        "chat.delete",
-        serde_json::json!({
-            "channel": &session.control_channel,
-            "ts": session.thread()?,
-        }),
-    )?)
+    delete_thread_root_at(bot_token, &session.control_channel, session.thread()?)
+}
+
+pub fn delete_thread_root_at(bot_token: &str, channel_id: &str, ts: &str) -> Result<(), String> {
+    let response: Value = reqwest::blocking::Client::new()
+        .post("https://slack.com/api/chat.delete")
+        .timeout(Duration::from_secs(10))
+        .bearer_auth(bot_token)
+        .json(&serde_json::json!({
+            "channel": channel_id,
+            "ts": ts,
+        }))
+        .send()
+        .map_err(|error| format!("Slack chat.delete failed: {error}"))?
+        .json()
+        .map_err(|error| format!("Slack chat.delete returned invalid JSON: {error}"))?;
+    slack_delete_ok(&response)
+}
+
+pub fn list_session_thread_roots(bot_token: &str, channel_id: &str) -> Result<Vec<String>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| format!("failed to create Slack cleanup client: {error}"))?;
+    let identity: Value = client
+        .post("https://slack.com/api/auth.test")
+        .bearer_auth(bot_token)
+        .send()
+        .map_err(|error| format!("Slack auth.test failed: {error}"))?
+        .json()
+        .map_err(|error| format!("Slack auth.test returned invalid JSON: {error}"))?;
+    slack_ok(&identity)?;
+    let bot_user_id = identity["user_id"]
+        .as_str()
+        .ok_or_else(|| "Slack auth.test response omitted user_id".to_owned())?;
+    let mut roots = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let page: Value = client
+            .get("https://slack.com/api/conversations.history")
+            .bearer_auth(bot_token)
+            .query(&[
+                ("channel", channel_id),
+                ("limit", "200"),
+                ("cursor", cursor.as_str()),
+            ])
+            .send()
+            .map_err(|error| format!("Slack conversations.history failed: {error}"))?
+            .json()
+            .map_err(|error| {
+                format!("Slack conversations.history returned invalid JSON: {error}")
+            })?;
+        slack_ok(&page)?;
+        let messages = page["messages"]
+            .as_array()
+            .ok_or_else(|| "Slack conversations.history response omitted messages".to_owned())?;
+        roots.extend(own_session_thread_roots(messages, bot_user_id)?);
+        cursor = page["response_metadata"]["next_cursor"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        if cursor.is_empty() {
+            if page["has_more"].as_bool() == Some(true) {
+                return Err("Slack conversations.history omitted next_cursor".to_owned());
+            }
+            break;
+        }
+    }
+    Ok(roots)
+}
+
+fn own_session_thread_roots(messages: &[Value], bot_user_id: &str) -> Result<Vec<String>, String> {
+    let mut roots = Vec::new();
+    for message in messages {
+        if message["user"].as_str() == Some(bot_user_id)
+            && message["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with(SESSION_STATUS_CARD_HEADER))
+        {
+            roots.push(
+                message["ts"]
+                    .as_str()
+                    .ok_or_else(|| "Slack Session Thread root omitted ts".to_owned())?
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(roots)
 }
 
 pub fn post_control_response(bot_token: &str, payload: &Value, text: &str) -> Result<(), String> {
@@ -256,6 +337,20 @@ pub fn outbound_text(text: &str) -> OutboundText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_only_own_session_roots() {
+        let messages = serde_json::json!([
+            {"user":"U_BOT","ts":"100.1","text":"PingMe Session\nAgent: codex"},
+            {"user":"U_OTHER","ts":"100.2","text":"PingMe Session\nAgent: codex"},
+            {"user":"U_BOT","ts":"100.3","text":"(pong codex)\nanswer"}
+        ]);
+
+        assert_eq!(
+            vec!["100.1"],
+            own_session_thread_roots(messages.as_array().unwrap(), "U_BOT").unwrap()
+        );
+    }
 
     #[test]
     fn short_text_is_the_whole_message() {

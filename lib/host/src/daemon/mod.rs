@@ -7,9 +7,8 @@ use std::os::unix::net::UnixStream as StdUnixStream;
 use std::process::ExitCode;
 use std::{env, fs};
 
-use pingme_session::{AgentSession, SessionStatus};
+use pingme_session::AgentSession;
 use pingme_setting::{HostSettings, setting_path};
-use pingme_slack::api::update_status_card;
 use pingme_slack::socket::SlackSocketMode;
 use serde_json::Value;
 use tokio::net::UnixListener;
@@ -22,6 +21,7 @@ use crate::daemon::monitor::monitor_agent_sessions;
 use crate::daemon::notify::{handle_host_notification, read_agent_notification};
 use crate::daemon::runtime::LiveSessions;
 use crate::daemon::thread::handle_slack_event;
+use crate::services::reconcile_slack_session_threads;
 use crate::socket::host_notify_socket_path;
 
 mod control;
@@ -59,7 +59,6 @@ async fn run_host_daemon() -> Result<(), String> {
         .map_err(|_| "missing environment variable SLACK_BOT_TOKEN".to_owned())?;
     // Handlers below are synchronous (blocking Slack Web API and tmux calls);
     // only the Slack socket and the notify socket are async.
-    block_in_place(|| recover_agent_sessions(&bot_token))?;
     let notify_socket_path = host_notify_socket_path()?;
     let _daemon_lock = try_lock_host_daemon(&notify_socket_path)?;
     if StdUnixStream::connect(&notify_socket_path).is_ok() {
@@ -79,6 +78,9 @@ async fn run_host_daemon() -> Result<(), String> {
     let mut live = LiveSessions::default();
     let mut pane_poll = tokio::time::interval(std::time::Duration::from_millis(1_000));
     pane_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut thread_cleanup = tokio::time::interval(std::time::Duration::from_secs(600));
+    thread_cleanup.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut cleanup_task: Option<tokio::task::JoinHandle<()>> = None;
 
     loop {
         tokio::select! {
@@ -133,6 +135,26 @@ async fn run_host_daemon() -> Result<(), String> {
                     eprintln!("failed to monitor Agent Sessions: {error}");
                 }
             }
+            _ = thread_cleanup.tick() => {
+                if cleanup_task.as_ref().is_some_and(|task| !task.is_finished()) {
+                    continue;
+                }
+                if let Some(task) = cleanup_task.take()
+                    && let Err(error) = task.await
+                {
+                    eprintln!("Session Thread reconciliation task failed: {error}");
+                }
+                let token = bot_token.clone();
+                let channel_id = setting.slack.control_channel_id.clone();
+                cleanup_task = Some(tokio::task::spawn_blocking(move || {
+                    let result = AgentSession::list_from_registry().and_then(|sessions| {
+                        reconcile_slack_session_threads(&token, &channel_id, &sessions)
+                    });
+                    if let Err(error) = result {
+                        eprintln!("failed to reconcile Session Threads: {error}");
+                    }
+                }));
+            }
         }
     }
 }
@@ -177,17 +199,6 @@ fn read_file_setting() -> Result<HostSettings, String> {
         &fs::read_to_string(setting_path())
             .map_err(|error| format!("failed to read setting.toml: {error}"))?,
     )
-}
-
-/// Marks Session Threads whose panes died while the daemon was down.
-fn recover_agent_sessions(bot_token: &str) -> Result<(), String> {
-    for mut session in AgentSession::list_from_registry()? {
-        if !session.available && session.thread_ts.is_some() {
-            session.status = SessionStatus::Unavailable;
-            update_status_card(bot_token, &session)?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

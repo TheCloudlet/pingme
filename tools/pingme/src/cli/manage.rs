@@ -42,8 +42,10 @@ pub(crate) fn manage_or_defer(
             },
             None => fail(format!("missing session-name\n{}", usage())),
         },
-        "cleanup" => match services.cleanup_sessions() {
-            Ok(count) => ok(format!("cleaned up {count} unavailable Agent Sessions\n")),
+        "cleanup" => match services.cleanup_sessions(&setting.slack.control_channel_id) {
+            Ok(count) => ok(format!(
+                "cleaned up {count} unavailable Agent Sessions or Slack roots\n"
+            )),
             Err(error) => fail(format!("failed to clean up Agent Sessions: {error}\n")),
         },
         _ => unreachable!("command was filtered by caller"),

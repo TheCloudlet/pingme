@@ -110,7 +110,8 @@ impl LocalServices for FakeServices {
         Ok(())
     }
 
-    fn cleanup_sessions(&mut self) -> Result<usize, String> {
+    fn cleanup_sessions(&mut self, channel_id: &str) -> Result<usize, String> {
+        assert_eq!("C_TEST_CONTROL", channel_id);
         self.calls.push("cleanup_sessions");
         Ok(2)
     }
