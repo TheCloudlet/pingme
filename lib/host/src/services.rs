@@ -5,11 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use pingme_agent::agent_start_channel;
 use pingme_agent::grok::install_grok_hook;
-use pingme_routing::update::render_session_status_card;
 use pingme_session::AgentSession;
 use pingme_slack::api::{
-    delete_thread_root, delete_thread_root_at, list_session_thread_roots, slack_chat, slack_ok,
-    update_status_card,
+    delete_thread_root, delete_thread_root_at, list_session_thread_roots, post_session_thread_root,
+    slack_ok, update_status_card,
 };
 use pingme_slack::probe::{ControlChannelProbe, control_channel_probe};
 use pingme_support::tmux::tmux;
@@ -55,20 +54,9 @@ impl LocalServices for RealServices {
 
     fn create_session_thread(&mut self, session: AgentSession) -> Result<AgentSession, String> {
         ensure_host_daemon()?;
-        let response = slack_chat(
-            &self.bot_token,
-            "chat.postMessage",
-            serde_json::json!({
-                "channel": &session.control_channel,
-                "text": render_session_status_card(&session),
-            }),
-        )?;
-        slack_ok(&response)?;
-        let ts = response["ts"]
-            .as_str()
-            .ok_or_else(|| "Slack chat.postMessage response did not include ts".to_owned())?;
+        let ts = post_session_thread_root(&self.bot_token, &session)?;
         let mut session = session;
-        session.thread_ts = Some(ts.to_owned());
+        session.thread_ts = Some(ts);
         Ok(session)
     }
 

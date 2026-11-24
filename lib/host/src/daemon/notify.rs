@@ -155,18 +155,26 @@ fn post_turn(
         let text = session_update_turn(&session.agent_cli, "✓ done", ended.elapsed);
         let _ = host.edit(session, &ts, &text);
     }
+    let mut mirror_error = None;
     for prompt in &turn.terminal_prompts {
-        post_long(
+        if let Err(error) = post_long(
             host,
             session,
             &format!("*You (terminal)*\n{prompt}"),
             "terminal.txt",
-        )?;
+        ) {
+            mirror_error = Some(error);
+            break;
+        }
     }
-    post_long(
+    let answer = post_long(
         host,
         session,
         &session_update_after_agent_turn(&session.agent_cli, turn.response),
         "answer.txt",
-    )
+    );
+    answer.and(match mirror_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    })
 }

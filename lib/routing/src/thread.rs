@@ -31,6 +31,7 @@ pub enum ThreadAction {
     MarkUnavailable,
     Name,
     Rename(String),
+    Rethread,
     Ignore,
     Reject(String),
 }
@@ -85,6 +86,7 @@ pub(crate) fn thread_action(
         "pingme stop" => ThreadAction::Stop,
         "pingme name" => ThreadAction::Name,
         "pingme screen" => ThreadAction::Screen,
+        "pingme rethread" => ThreadAction::Rethread,
         "pingme keys" => ThreadAction::Reject("usage: pingme keys <keys>".to_owned()),
         _ => {
             if let Some(name) = text.strip_prefix("pingme rename ") {
@@ -138,6 +140,7 @@ pub fn apply_host_routing_policy(
         | ThreadAction::Stop
         | ThreadAction::Screen
         | ThreadAction::Keys(_)
+        | ThreadAction::Rethread
             if !session.available =>
         {
             ThreadAction::MarkUnavailable
@@ -378,6 +381,55 @@ mod tests {
                 "U_TEST_OPERATOR",
                 "codex",
             )
+        );
+    }
+
+    #[test]
+    fn recognizes_rethread_control_and_routing_policy() {
+        let mut session = pingme_session::testing::test_session(
+            "codex-project",
+            "%7",
+            Some("1757221923.123456"),
+            "C_TEST_CONTROL",
+            "U_TEST_OPERATOR",
+        );
+        let base = ThreadMessage {
+            channel_id: "C_TEST_CONTROL",
+            thread_ts: Some("1757221923.123456"),
+            user_id: Some("U_TEST_OPERATOR"),
+            text: "pingme rethread",
+            has_subtype: false,
+            is_bot: false,
+            event_ts: Some("1757221924.000000"),
+            files: Vec::new(),
+        };
+
+        assert_eq!(
+            ThreadAction::Rethread,
+            thread_action(&base, "U_TEST_OPERATOR", "codex")
+        );
+        assert_eq!(
+            ThreadAction::Prompt("please pingme rethread".to_owned()),
+            thread_action(
+                &ThreadMessage {
+                    text: "please pingme rethread",
+                    ..base.clone()
+                },
+                "U_TEST_OPERATOR",
+                "codex",
+            )
+        );
+
+        session.status = SessionStatus::Busy;
+        assert_eq!(
+            ThreadAction::Rethread,
+            apply_host_routing_policy(&base, &session, ThreadAction::Rethread, 0.0, None)
+        );
+
+        session.available = false;
+        assert_eq!(
+            ThreadAction::MarkUnavailable,
+            apply_host_routing_policy(&base, &session, ThreadAction::Rethread, 0.0, None)
         );
     }
 

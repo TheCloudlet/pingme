@@ -75,6 +75,7 @@ Thread controls (type these as the whole message):
 - `pingme keys <keys>` — send keys to the pane (`y`, `2`, `Enter`, `Escape`, `C-c`), separated by spaces; type a space as `Space`. This works while the session is busy and is not a new prompt
 - `pingme name` — show the session name
 - `pingme rename new-name` — rename the session
+- `pingme rethread` — move this running session to a fresh Slack thread without restarting the Agent CLI or clearing its context (posts a move notice and deletes the old thread root)
 
 Paste a photo (png, jpeg, and other images). The Agent CLI gets a **local file path**, not a magic clipboard paste.
 

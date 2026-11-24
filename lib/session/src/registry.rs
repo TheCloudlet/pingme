@@ -128,6 +128,14 @@ impl AgentSession {
         Ok(())
     }
 
+    pub fn write_thread(&mut self, thread_ts: &str) -> Result<(), String> {
+        self.write_field("thread_ts", thread_ts)?;
+        self.write_field("thread_permalink", "")?;
+        self.thread_ts = Some(thread_ts.to_owned());
+        self.thread_permalink = None;
+        Ok(())
+    }
+
     /// The fields a turn changes. Never `session_name`, which publishes the pane.
     pub fn write_turn_state(&self) -> Result<(), String> {
         self.write_field(

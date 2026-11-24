@@ -136,6 +136,22 @@ fn slack_form(bot_token: &str, method: &str, form: &[(&str, &str)]) -> Result<Va
         .map_err(|error| format!("Slack {method} returned invalid JSON: {error}"))
 }
 
+pub fn post_session_thread_root(bot_token: &str, session: &AgentSession) -> Result<String, String> {
+    let response = slack_chat(
+        bot_token,
+        "chat.postMessage",
+        serde_json::json!({
+            "channel": &session.control_channel,
+            "text": render_session_status_card(session),
+        }),
+    )?;
+    slack_ok(&response)?;
+    response["ts"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "Slack chat.postMessage response did not include ts".to_owned())
+}
+
 pub fn update_status_card(bot_token: &str, session: &AgentSession) -> Result<(), String> {
     slack_ok(&slack_chat(
         bot_token,

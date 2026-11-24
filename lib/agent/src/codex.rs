@@ -47,22 +47,21 @@ pub fn terminal_prompts<'a>(
     let Some(messages) = notification.get("input-messages").and_then(Value::as_array) else {
         return Vec::new();
     };
-    let mut prompts = Vec::new();
-    // `input-messages` accumulates the Agent CLI's whole terminal input history,
-    // not just this turn's; only the entries past what was already mirrored are new.
-    for message in messages.iter().skip(already_mirrored) {
-        let Some(prompt) = message
-            .as_str()
-            .map(str::trim)
-            .filter(|prompt| !prompt.is_empty())
-        else {
-            continue;
-        };
-        if Some(prompt_fingerprint(prompt).as_str()) != last_slack_prompt_fingerprint {
-            prompts.push(prompt);
-        }
+    // `input-messages` carries Codex's whole session history (including turns
+    // before `codex resume`, `/resume`, or `pingme rethread`), so only mirror
+    // the latest new prompt for this turn instead of replaying prior history.
+    let Some(prompt) = messages
+        .iter()
+        .skip(already_mirrored)
+        .filter_map(|message| message.as_str().map(str::trim))
+        .rfind(|prompt| !prompt.is_empty())
+    else {
+        return Vec::new();
+    };
+    if Some(prompt_fingerprint(prompt).as_str()) == last_slack_prompt_fingerprint {
+        return Vec::new();
     }
-    prompts
+    vec![prompt]
 }
 
 #[cfg(test)]
@@ -71,22 +70,22 @@ mod tests {
     use crate::prompt_fingerprint;
 
     #[test]
-    fn codex_notification_mirrors_all_terminal_input() {
+    fn codex_notification_mirrors_only_the_latest_terminal_input() {
         let notification = serde_json::json!({
             "type": "agent-turn-complete",
-            "input-messages": ["first terminal prompt", "second terminal prompt"],
+            "input-messages": ["earlier history", "latest terminal prompt"],
             "last-assistant-message": "done"
         });
 
         assert_eq!(
-            vec!["first terminal prompt", "second terminal prompt"],
+            vec!["latest terminal prompt"],
             terminal_prompts(&notification, None, 0)
         );
         assert_eq!(
-            vec!["first terminal prompt"],
+            Vec::<&str>::new(),
             terminal_prompts(
                 &notification,
-                Some(&prompt_fingerprint("second terminal prompt")),
+                Some(&prompt_fingerprint("latest terminal prompt")),
                 0
             )
         );

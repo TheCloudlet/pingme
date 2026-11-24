@@ -78,10 +78,12 @@ _Avoid_: Prompt, Agent CLI command, provider slash command
 
 **Thread Control Message**:
 A normal Slack message inside a Session Thread: `pingme stop`, `pingme screen`,
-`pingme keys <keys>`, `pingme name`, or `pingme rename <name>`. Slash commands
-are not available inside Session Threads, so these are ordinary messages rather
-than `/pingme` invocations. `pingme keys` sends those keys to the pane and is
-not a prompt.
+`pingme keys <keys>`, `pingme name`, `pingme rename <name>`, or
+`pingme rethread`. Slash commands are not available inside Session Threads, so
+these are ordinary messages rather than `/pingme` invocations. `pingme keys`
+sends those keys to the pane and is not a prompt. `pingme rethread` opens a
+fresh Session Thread for the same running Agent Session without restarting its
+Agent CLI.
 _Avoid_: Slack slash command, prompt
 
 **Stop**:

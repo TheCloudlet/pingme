@@ -37,10 +37,14 @@ pub fn finished_turn<'a>(
             session.last_slack_prompt.as_deref(),
             session.mirrored_terminal_count,
         ),
+        // Codex side-thread notifications carry their own shorter `input-messages`;
+        // keep a high-water mark so they never rewind the main thread's cursor.
         terminal_input_count: notification
             .get("input-messages")
             .and_then(Value::as_array)
-            .map_or(session.mirrored_terminal_count, Vec::len),
+            .map_or(session.mirrored_terminal_count, |messages| {
+                session.mirrored_terminal_count.max(messages.len())
+            }),
     })
 }
 
@@ -77,5 +81,22 @@ mod tests {
         assert_eq!("hi", turn.response);
         assert!(turn.terminal_prompts.is_empty());
         assert_eq!(1, turn.terminal_input_count);
+    }
+
+    #[test]
+    fn shorter_codex_notification_never_shrinks_mirrored_terminal_count() {
+        let mut codex =
+            pingme_session::testing::test_session("codex-project", "%7", Some("100.1"), "C1", "U1");
+        codex.mirrored_terminal_count = 138;
+
+        // A Codex side-thread notification arrives with a 1-element input-messages array.
+        let side_thread = serde_json::json!({
+            "type": "agent-turn-complete",
+            "input-messages": ["summarize"],
+            "last-assistant-message": "{\"summary\":\"ok\"}"
+        });
+        let turn = finished_turn(&codex, &side_thread).unwrap();
+        assert!(turn.terminal_prompts.is_empty());
+        assert_eq!(138, turn.terminal_input_count);
     }
 }

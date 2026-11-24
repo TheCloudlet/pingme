@@ -77,6 +77,12 @@ impl LiveSessions {
         })
     }
 
+    pub(crate) fn detach_receipt(&mut self, pane: &str) {
+        if let Some(turn) = self.turns.get_mut(pane) {
+            turn.receipt_ts = None;
+        }
+    }
+
     pub(crate) fn drop_pane(&mut self, pane: &str) {
         self.turns.remove(pane);
         self.queued.remove(pane);

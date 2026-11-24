@@ -141,9 +141,45 @@ fn act_on_thread_message(
             host.save(session)?;
             reply(host, session, &format!("Renamed to `{name}`."))
         }
+        ThreadAction::Rethread => rethread_session(host, session, live),
         ThreadAction::Reject(reason) => reply(host, session, &reason),
         ThreadAction::Ignore => Ok(()),
     }
+}
+
+fn rethread_session(
+    host: &mut impl Effects,
+    session: &mut AgentSession,
+    live: &mut LiveSessions,
+) -> Result<(), String> {
+    if !host.alive(session.pane()?) {
+        return mark_unavailable(host, session, live);
+    }
+
+    let old = session.clone();
+    let pane = session.pane()?.to_owned();
+    let mut pending = session.clone();
+    pending.thread_ts = None;
+    pending.thread_permalink = None;
+
+    let new_ts = host.create_thread(&pending)?;
+    if let Err(error) = host.bind_thread(session, &new_ts) {
+        let mut orphan = pending;
+        orphan.thread_ts = Some(new_ts);
+        let _ = host.delete_root(&orphan);
+        return Err(error);
+    }
+    live.detach_receipt(&pane);
+    if let Err(error) = host.save(session) {
+        eprintln!("failed to update new Session Thread card: {error}");
+    }
+    if let Err(error) = reply(host, &old, "Moved to a new Session Thread.") {
+        eprintln!("failed to post thread move notice: {error}");
+    }
+    if let Err(error) = host.delete_root(&old) {
+        eprintln!("failed to delete old Session Thread root: {error}");
+    }
+    Ok(())
 }
 
 pub(crate) fn submit_prompt(

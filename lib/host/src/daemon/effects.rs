@@ -9,8 +9,8 @@ use std::time::SystemTime;
 use pingme_routing::photo::SlackFile;
 use pingme_session::AgentSession;
 use pingme_slack::api::{
-    download_slack_photo, outbound_text, post_thread_reply_ts, update_status_card,
-    update_thread_reply, upload_thread_file,
+    delete_thread_root, download_slack_photo, outbound_text, post_session_thread_root,
+    post_thread_reply_ts, update_status_card, update_thread_reply, upload_thread_file,
 };
 use pingme_support::tmux::tmux;
 use pingme_tmux::pane::{capture_pane, pane_available, paste_into_pane, send_keys};
@@ -26,6 +26,12 @@ pub(crate) trait Effects {
     fn keys(&mut self, pane: &str, keys: &str) -> Result<(), String>;
     /// Renames the tmux window and the Session in the registry.
     fn rename(&mut self, session: &mut AgentSession, name: &str) -> Result<(), String>;
+    /// Posts a new Session Thread root card in the Control Channel and returns its ts.
+    fn create_thread(&mut self, session: &AgentSession) -> Result<String, String>;
+    /// Rebinds the Session's tmux registry entry to a new Session Thread ts.
+    fn bind_thread(&mut self, session: &mut AgentSession, thread_ts: &str) -> Result<(), String>;
+    /// Deletes the bot-authored Session Thread root message.
+    fn delete_root(&mut self, session: &AgentSession) -> Result<(), String>;
     /// Posts in the Session Thread and returns the message ts.
     fn post(&mut self, session: &AgentSession, text: &str) -> Result<String, String>;
     fn edit(&mut self, session: &AgentSession, ts: &str, text: &str) -> Result<(), String>;
@@ -93,6 +99,18 @@ impl Effects for TmuxSlack<'_> {
     fn rename(&mut self, session: &mut AgentSession, name: &str) -> Result<(), String> {
         tmux(&["rename-window", "-t", session.pane()?, name])?;
         session.write_name(name)
+    }
+
+    fn create_thread(&mut self, session: &AgentSession) -> Result<String, String> {
+        post_session_thread_root(self.bot_token, session)
+    }
+
+    fn bind_thread(&mut self, session: &mut AgentSession, thread_ts: &str) -> Result<(), String> {
+        session.write_thread(thread_ts)
+    }
+
+    fn delete_root(&mut self, session: &AgentSession) -> Result<(), String> {
+        delete_thread_root(self.bot_token, session)
     }
 
     fn post(&mut self, session: &AgentSession, text: &str) -> Result<String, String> {

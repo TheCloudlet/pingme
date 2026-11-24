@@ -26,6 +26,8 @@ enum Effect {
     Edit(String, String),
     Upload(String, String),
     Status(SessionStatus),
+    CreateThread(String),
+    DeleteRoot(String),
 }
 
 struct Phone {
@@ -33,9 +35,13 @@ struct Phone {
     clock: SystemTime,
     screen: String,
     posted: usize,
+    created_threads: usize,
+    pane_alive: bool,
+    fail_bind_thread: bool,
     /// Posts starting with this fail, as a Slack outage would.
     failing_post: Option<&'static str>,
     log: Vec<Effect>,
+    posts: Vec<(String, String)>,
     live: LiveSessions,
     setting: HostSettings,
 }
@@ -55,8 +61,12 @@ impl Phone {
             clock: SystemTime::UNIX_EPOCH + Duration::from_secs(1_757_221_924),
             screen: String::new(),
             posted: 0,
+            created_threads: 0,
+            pane_alive: true,
+            fail_bind_thread: false,
             failing_post: None,
             log: Vec::new(),
+            posts: Vec::new(),
             live: LiveSessions::default(),
             setting: HostSettings::parse(
                 "[host]\nname = \"linux\"\n[slack]\ncontrol_channel_id = \"C_CONTROL\"\noperator_id = \"U_OPERATOR\"\n",
@@ -67,15 +77,54 @@ impl Phone {
 
     /// The Operator types `text` in the Session Thread.
     fn send(&mut self, text: &str) -> Result<(), String> {
+        self.send_in("1757221923.123456", text)
+    }
+
+    /// The Operator types `text` in a specific thread.
+    fn send_in(&mut self, thread_ts: &str, text: &str) -> Result<(), String> {
         let mut envelope: Value = serde_json::from_str(include_str!(
             "../../../slack/tests/fixtures/slack-message-envelopes.json"
         ))
         .unwrap();
         let mut envelope = envelope["operator"].take();
+        envelope["payload"]["event"]["thread_ts"] = thread_ts.into();
         envelope["payload"]["event"]["text"] = text.into();
         let mut live = std::mem::take(&mut self.live);
         let setting = self.setting.clone();
         let handled = handle_slack_event(self, &setting, 0.0, &envelope, &mut live);
+        self.live = live;
+        handled
+    }
+
+    fn posts_in(&self, thread_ts: &str) -> Vec<&str> {
+        self.posts
+            .iter()
+            .filter(|(ts, _)| ts == thread_ts)
+            .map(|(_, text)| text.as_str())
+            .collect()
+    }
+
+    /// Codex's notify hook fires `after` the last event with `input_messages` and `answer`.
+    fn finish_codex(
+        &mut self,
+        after: Duration,
+        input_messages: &[&str],
+        answer: &str,
+    ) -> Result<(), String> {
+        self.clock += after;
+        let completed = serde_json::json!({
+            "type": "agent-turn-complete",
+            "input-messages": input_messages,
+            "last-assistant-message": answer,
+        });
+        let notification = serde_json::json!({
+            "token": "secret",
+            "agent_cli": "codex",
+            "notification": completed.to_string(),
+        });
+        let mut live = std::mem::take(&mut self.live);
+        let setting = self.setting.clone();
+        let handled = handle_host_notification(self, &setting, &notification, &mut live);
         self.live = live;
         handled
     }
@@ -135,7 +184,7 @@ impl Effects for Phone {
     }
 
     fn alive(&mut self, _pane: &str) -> bool {
-        true
+        self.pane_alive
     }
 
     fn capture(&mut self, _pane: &str) -> Result<String, String> {
@@ -157,7 +206,34 @@ impl Effects for Phone {
         Ok(())
     }
 
-    fn post(&mut self, _session: &AgentSession, text: &str) -> Result<String, String> {
+    fn create_thread(&mut self, _session: &AgentSession) -> Result<String, String> {
+        self.created_threads += 1;
+        let ts = format!("1757221999.{:06}", self.created_threads);
+        self.log.push(CreateThread(ts.clone()));
+        Ok(ts)
+    }
+
+    fn bind_thread(&mut self, session: &mut AgentSession, thread_ts: &str) -> Result<(), String> {
+        if self.fail_bind_thread {
+            return Err("tmux set-option failed".to_owned());
+        }
+        session.thread_ts = Some(thread_ts.to_owned());
+        session.thread_permalink = None;
+        for saved in &mut self.sessions {
+            if saved.pane_id == session.pane_id {
+                saved.thread_ts = Some(thread_ts.to_owned());
+                saved.thread_permalink = None;
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_root(&mut self, session: &AgentSession) -> Result<(), String> {
+        self.log.push(DeleteRoot(session.thread()?.to_owned()));
+        Ok(())
+    }
+
+    fn post(&mut self, session: &AgentSession, text: &str) -> Result<String, String> {
         if self
             .failing_post
             .is_some_and(|prefix| text.starts_with(prefix))
@@ -165,6 +241,10 @@ impl Effects for Phone {
             return Err("Slack API error: ratelimited".to_owned());
         }
         self.posted += 1;
+        self.posts.push((
+            session.thread_ts.clone().unwrap_or_default(),
+            text.to_owned(),
+        ));
         self.log.push(Post(text.to_owned()));
         Ok(format!("ts{}", self.posted))
     }
@@ -330,5 +410,243 @@ fn a_long_answer_keeps_its_opening_and_attaches_the_full_text() {
     assert_eq!(
         &Upload("answer.txt".to_owned(), format!("(pong grok)\n{answer}")),
         &seen[3]
+    );
+}
+
+#[test]
+fn rethread_rotates_to_a_fresh_session_thread_and_routes_future_messages_there() {
+    let mut phone = Phone::new();
+    let old_ts = "1757221923.123456";
+    let new_ts = "1757221999.000001";
+
+    phone.send_in(old_ts, "pingme rethread").unwrap();
+    assert_eq!(
+        vec![
+            CreateThread(new_ts.to_owned()),
+            Status(SessionStatus::Idle),
+            post("Moved to a new Session Thread."),
+            DeleteRoot(old_ts.to_owned()),
+        ],
+        phone.seen()
+    );
+    assert_eq!(
+        vec!["Moved to a new Session Thread."],
+        phone.posts_in(old_ts)
+    );
+    assert!(phone.posts_in(new_ts).is_empty());
+
+    // Messages sent in the old thread are no longer routed.
+    phone.send_in(old_ts, "stray prompt").unwrap();
+    assert!(phone.seen().is_empty());
+
+    // Messages in the new thread reach the same running pane and answer in the new thread.
+    phone.send_in(new_ts, "continue our task").unwrap();
+    phone
+        .finish(Duration::from_secs(10), "Still have full context.")
+        .unwrap();
+    assert_eq!(
+        vec!["(ping grok)", "(pong grok)\nStill have full context."],
+        phone.posts_in(new_ts)
+    );
+}
+
+#[test]
+fn rethread_while_busy_stops_editing_old_receipt_and_answers_in_the_new_thread() {
+    let mut phone = Phone::new();
+    let old_ts = "1757221923.123456";
+    let new_ts = "1757221999.000001";
+
+    phone.send_in(old_ts, "inspect the failure").unwrap();
+    phone.send_in(old_ts, "then fix it").unwrap();
+    phone.seen();
+
+    phone.send_in(old_ts, "pingme rethread").unwrap();
+    assert_eq!(
+        vec![
+            CreateThread(new_ts.to_owned()),
+            Status(SessionStatus::Busy),
+            post("Moved to a new Session Thread."),
+            DeleteRoot(old_ts.to_owned()),
+        ],
+        phone.seen()
+    );
+
+    // Polling past the 20s edit window must not edit the old thread's receipt.
+    phone.poll(Duration::from_secs(25), "⠴ Reading the CI log… 25.0s");
+    assert!(phone.seen().is_empty());
+
+    // When the turn completes, no old receipt is edited; the answer and queued prompt land in the new thread.
+    phone.finish(Duration::from_secs(10), "Found it.").unwrap();
+    assert_eq!(
+        vec![
+            Status(SessionStatus::Idle),
+            post("(pong grok)\nFound it."),
+            Status(SessionStatus::Busy),
+            paste("then fix it"),
+            post("(ping grok)"),
+        ],
+        phone.seen()
+    );
+    assert_eq!(
+        vec!["(pong grok)\nFound it.", "(ping grok)"],
+        phone.posts_in(new_ts)
+    );
+}
+
+#[test]
+fn rethread_rolls_back_the_new_root_when_binding_the_pane_fails() {
+    let mut phone = Phone::new();
+    let old_ts = "1757221923.123456";
+    let new_ts = "1757221999.000001";
+    phone.fail_bind_thread = true;
+
+    assert!(phone.send_in(old_ts, "pingme rethread").is_err());
+    assert_eq!(
+        vec![
+            CreateThread(new_ts.to_owned()),
+            DeleteRoot(new_ts.to_owned()),
+            post("Bridge error: tmux set-option failed"),
+        ],
+        phone.seen()
+    );
+    assert_eq!(
+        vec!["Bridge error: tmux set-option failed"],
+        phone.posts_in(old_ts)
+    );
+
+    // The old thread remains active after rollback.
+    phone.send_in(old_ts, "still here").unwrap();
+    assert_eq!(
+        vec![
+            Status(SessionStatus::Busy),
+            paste("still here"),
+            post("(ping grok)"),
+        ],
+        phone.seen()
+    );
+}
+
+#[test]
+fn rethread_on_a_dead_pane_marks_the_session_unavailable() {
+    let mut phone = Phone::new();
+    phone.pane_alive = false;
+
+    phone.send("pingme rethread").unwrap();
+    assert_eq!(
+        vec![
+            Status(SessionStatus::Unavailable),
+            post("(reject grok unavailable)"),
+        ],
+        phone.seen()
+    );
+}
+
+#[test]
+fn shorter_codex_notification_after_rethread_does_not_replay_history() {
+    let mut phone = Phone::new();
+    phone.sessions[0].agent_cli = "codex".to_owned();
+    phone.sessions[0].mirrored_terminal_count = 3;
+    let old_ts = "1757221923.123456";
+    let new_ts = "1757221999.000001";
+
+    phone.send_in(old_ts, "pingme rethread").unwrap();
+    phone.seen();
+
+    // A Codex side-thread notification arrives with a shorter input-messages array.
+    phone
+        .finish_codex(
+            Duration::from_secs(5),
+            &["side-thread summary"],
+            "{\"summary\":\"ok\"}",
+        )
+        .unwrap();
+    phone.seen();
+
+    // The next normal Slack turn arrives with the full 4-message main history.
+    phone.send_in(new_ts, "summarize the PR").unwrap();
+    phone
+        .finish_codex(
+            Duration::from_secs(10),
+            &["old 1", "old 2", "old 3", "summarize the PR"],
+            "Here is the summary.",
+        )
+        .unwrap();
+    assert_eq!(
+        vec![
+            "(pong codex)\n{\"summary\":\"ok\"}",
+            "(ping codex)",
+            "(pong codex)\nHere is the summary.",
+        ],
+        phone.posts_in(new_ts)
+    );
+}
+
+#[test]
+fn a_failed_terminal_mirror_still_posts_the_codex_answer() {
+    let mut phone = Phone::new();
+    phone.sessions[0].agent_cli = "codex".to_owned();
+    phone.failing_post = Some("*You (terminal)*");
+
+    assert!(
+        phone
+            .finish_codex(Duration::from_secs(5), &["typed in tmux"], "Done.")
+            .is_err()
+    );
+    assert_eq!(
+        vec![
+            "(pong codex)\nDone.",
+            "Bridge error: Slack API error: ratelimited"
+        ],
+        phone.posts_in("1757221923.123456")
+    );
+}
+
+#[test]
+fn resumed_or_lagging_codex_session_does_not_replay_prior_history_into_new_thread() {
+    let mut phone = Phone::new();
+    phone.sessions[0].agent_cli = "codex".to_owned();
+    phone.sessions[0].mirrored_terminal_count = 0;
+    let old_ts = "1757221923.123456";
+    let new_ts = "1757221999.000001";
+
+    phone.send_in(old_ts, "pingme rethread").unwrap();
+    phone.seen();
+
+    // First turn in the new thread comes from Slack while Codex reports full prior history.
+    phone.send_in(new_ts, "request descent fl 210").unwrap();
+    phone
+        .finish_codex(
+            Duration::from_secs(10),
+            &["old 1", "old 2", "old 3", "request descent fl 210"],
+            "Cleared FL210.",
+        )
+        .unwrap();
+    assert_eq!(
+        vec!["(ping codex)", "(pong codex)\nCleared FL210."],
+        phone.posts_in(new_ts)
+    );
+
+    // Next turn typed in the terminal mirrors only that prompt.
+    phone
+        .finish_codex(
+            Duration::from_secs(5),
+            &[
+                "old 1",
+                "old 2",
+                "old 3",
+                "request descent fl 210",
+                "is visibility Tower?",
+            ],
+            "Yes, Tower.",
+        )
+        .unwrap();
+    assert_eq!(
+        vec![
+            "(ping codex)",
+            "(pong codex)\nCleared FL210.",
+            "*You (terminal)*\nis visibility Tower?",
+            "(pong codex)\nYes, Tower.",
+        ],
+        phone.posts_in(new_ts)
     );
 }
