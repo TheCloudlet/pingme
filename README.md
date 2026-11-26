@@ -4,7 +4,7 @@
 
 # pingme
 
-Talk to **Grok Build** (`grok`) or **Codex CLI** (`codex`) on your computer from a Slack thread.
+Talk to **Grok Build** (`grok`), **Codex CLI** (`codex`), or **Antigravity CLI** (`agy`) on your computer from a Slack thread.
 
 One person, one machine. Nobody else in that Slack channel can drive it.
 
@@ -29,7 +29,7 @@ You do not need a company Slack. A personal workspace is enough. Create one if y
 - Linux or macOS
 - A Slack workspace (create one during setup if needed)
 - `tmux`
-- `codex` and/or `grok` already installed and logged in
+- `codex`, `grok`, and/or `agy` already installed and logged in
 - Rust 1.89+ (`cargo`) to install this binary. Older `rustc` will not build it.
 
 The binary is `pingme`. Homebrew already has a different `pingme` ([kha7iq/pingme](https://github.com/kha7iq/pingme)). GitHub can keep this repo name; `cargo install` / `$PATH` cannot share that command.
@@ -47,6 +47,8 @@ pingme grok
 pingme grok --resume <session-id>
 pingme codex
 pingme codex resume <session-id>
+pingme agy
+pingme agy --continue
 pingme list
 pingme attach <session-name>
 pingme cleanup
@@ -55,7 +57,7 @@ pingme doctor
 
 `pingme cleanup` removes unavailable local sessions and old PingMe Session roots in Slack whose tmux mappings are gone. The Host daemon checks for orphaned roots at startup and every ten minutes. Both leave live sessions and recently created roots alone.
 
-Arguments after `grok` or `codex` are passed through to that Agent CLI. `pingme doctor` checks the setup and names the piece to fix when Slack does not answer.
+Arguments after `grok`, `codex`, or `agy` are passed through to that Agent CLI. `pingme doctor` checks the setup and names the piece to fix when Slack does not answer.
 
 In Slack, in the private channel:
 
@@ -64,9 +66,11 @@ In Slack, in the private channel:
 /pingme grok my-project --resume <session-id>
 /pingme codex my-project
 /pingme codex my-project resume <session-id>
+/pingme agy my-project
+/pingme agy my-project --continue
 ```
 
-In that session’s thread, type normally. The bot replies `(ping grok)` or `(ping codex)` when the prompt has been pasted into the Agent CLI. While the turn runs, that receipt updates in place (`(ping grok) ⏳ working 2m`), and ends as `✓ done` or `■ stopped`. If the pane stops changing for a minute, a new message (so your phone notifies) shows the bottom of the screen: usually a question for you. The answer arrives as a new message, `(pong grok)` or `(pong codex)`, then the body. A long answer keeps its opening in the message and attaches the full text. A prompt sent while the session is busy is `(queued grok)` or `(queued codex)` and runs when the turn ends. A second one replaces the first. Rejected prompts are `(reject grok stale)`, `(reject grok unauthorized)`, or `(reject grok unavailable)`.
+In that session’s thread, type normally. The bot replies `(ping grok)`, `(ping codex)`, or `(ping agy)` when the prompt has been pasted into the Agent CLI. While the turn runs, that receipt updates in place (`(ping grok) ⏳ working 2m`), and ends as `✓ done` or `■ stopped`. If the pane stops changing for a minute, a new message (so your phone notifies) shows the bottom of the screen: usually a question for you. The answer arrives as a new message, `(pong grok)`, `(pong codex)`, or `(pong agy)`, then the body. A long answer keeps its opening in the message and attaches the full text. A prompt sent while the session is busy is `(queued grok)`, `(queued codex)`, or `(queued agy)` and runs when the turn ends. A second one replaces the first. Rejected prompts are `(reject grok stale)`, `(reject grok unauthorized)`, or `(reject grok unavailable)`.
 
 Thread controls (type these as the whole message):
 
@@ -86,6 +90,7 @@ Paste a photo (png, jpeg, and other images). The Agent CLI gets a **local file p
 - Photos become paths on this computer.
 - One prompt runs at a time. A prompt sent while the session is busy waits, and only the latest waiting prompt is kept. `pingme stop` drops it. The queue lives in the Host daemon; restarting the daemon drops it.
 - The first `pingme grok` writes `~/.grok/hooks/pingme.json`. It will not replace a different file already there.
+- The first `pingme agy` adds a `"pingme"` `Stop` hook entry to `~/.gemini/config/hooks.json`, preserving other hooks. It will not replace a different `"pingme"` entry already there.
 
 ## Security
 
@@ -107,7 +112,7 @@ pingme is a Cargo workspace laid out like LLVM: libraries under `lib/`, the bina
 | `pingme-setting` | `lib/setting` | `setting.toml` |
 | `pingme-session` | `lib/session` | The Agent Session and its tmux registry |
 | `pingme-routing` | `lib/routing` | What an Operator message or `/pingme` means (pure) |
-| `pingme-agent` | `lib/agent` | Codex CLI and Grok Build commands, hooks, turn notifications |
+| `pingme-agent` | `lib/agent` | Codex CLI, Grok Build, and Antigravity CLI commands, hooks, turn notifications |
 | `pingme-tmux` | `lib/tmux` | Spawning, pasting into, and attaching Agent CLI panes |
 | `pingme-slack` | `lib/slack` | Web API calls, Socket Mode payloads, the Socket Mode connection |
 | `pingme-host` | `lib/host` | The `LocalServices` seam, Agent Session launch, the Host Daemon and its `Effects` seam |

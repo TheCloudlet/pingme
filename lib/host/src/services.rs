@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pingme_agent::agent_start_channel;
+use pingme_agent::agy::install_agy_hook;
 use pingme_agent::grok::install_grok_hook;
 use pingme_session::AgentSession;
 use pingme_slack::api::{
@@ -67,6 +68,8 @@ impl LocalServices for RealServices {
     fn spawn_agent(&mut self, mut session: AgentSession) -> Result<AgentSession, String> {
         if session.agent_cli == "grok" {
             install_grok_hook()?;
+        } else if session.agent_cli == "agy" {
+            install_agy_hook()?;
         }
         // A bridged Agent CLI reports finished turns to the Host daemon's notify socket.
         if let Some(thread_ts) = &session.thread_ts {

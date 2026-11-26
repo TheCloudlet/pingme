@@ -1,13 +1,14 @@
 use pingme_session::AgentSession;
 use serde_json::Value;
 
+use crate::agy::{agy_final_response, agy_terminal_prompts};
 use crate::codex::terminal_prompts;
 use crate::grok::grok_final_response;
 
 /// The end of an Agent CLI turn, read from its completion notification.
 pub struct FinishedTurn<'a> {
     pub response: &'a str,
-    /// Prompts typed in the terminal since the last mirrored one (Codex CLI only).
+    /// Prompts typed in the terminal since the last mirrored one.
     pub terminal_prompts: Vec<&'a str>,
     pub terminal_input_count: usize,
 }
@@ -17,6 +18,16 @@ pub fn finished_turn<'a>(
     session: &AgentSession,
     notification: &'a Value,
 ) -> Option<FinishedTurn<'a>> {
+    if session.agent_cli == "agy" {
+        return Some(FinishedTurn {
+            response: agy_final_response(notification)?,
+            terminal_prompts: agy_terminal_prompts(
+                notification,
+                session.last_slack_prompt.as_deref(),
+            ),
+            terminal_input_count: session.mirrored_terminal_count,
+        });
+    }
     if session.agent_cli == "grok" {
         return Some(FinishedTurn {
             response: grok_final_response(notification)?,

@@ -33,6 +33,10 @@ _Avoid_: Grok CLI, grok-cli, gork-cli
 OpenAI's official Agent CLI, invoked as `codex`.
 _Avoid_: Codex, OpenAI CLI
 
+**Antigravity CLI**:
+Google's official Agent CLI, invoked as `agy`.
+_Avoid_: AGY, Antigravity IDE, Antigravity App
+
 **Agent Session**:
 A continuing conversation between the Operator and one Agent CLI. Each Agent
 Session belongs to exactly one Session Thread.

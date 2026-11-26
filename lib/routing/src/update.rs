@@ -9,6 +9,7 @@ pub fn agent_display_name(agent_cli: &str) -> &str {
     match agent_cli {
         "codex" => "Codex",
         "grok" => "Grok",
+        "agy" => "Antigravity",
         _ => agent_cli,
     }
 }

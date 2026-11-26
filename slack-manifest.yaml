@@ -2,7 +2,7 @@
 # Keep these scopes in step with REQUIRED_BOT_SCOPES in tools/pingme/src/cli/doctor.rs (`pingme doctor` checks them).
 display_information:
   name: pingme
-  description: Drive Codex CLI or Grok Build on this computer from a private Slack channel
+  description: Drive Codex CLI, Grok Build, or Antigravity CLI on this computer from a private Slack channel
 features:
   bot_user:
     display_name: pingme
@@ -10,7 +10,7 @@ features:
   slash_commands:
     - command: /pingme
       description: Start an Agent Session
-      usage_hint: grok my-project or codex my-project
+      usage_hint: grok my-project, codex my-project, or agy my-project
       should_escape: false
 oauth_config:
   scopes:

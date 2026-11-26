@@ -3,6 +3,7 @@ use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::process::ExitCode;
 
+use pingme_agent::agy::enrich_agy_notification;
 use pingme_agent::turn::{FinishedTurn, finished_turn};
 use pingme_routing::update::{session_update_after_agent_turn, session_update_turn};
 use pingme_session::{AgentSession, SessionStatus};
@@ -34,6 +35,11 @@ fn notify_daemon(args: &[String]) -> Result<(), String> {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
             .map_err(|error| format!("failed to read Grok notification: {error}"))?;
         input
+    } else if agent_cli == "agy" {
+        let mut input = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
+            .map_err(|error| format!("failed to read Antigravity notification: {error}"))?;
+        enrich_agy_notification(&input)?
     } else {
         args.get(2)
             .ok_or_else(|| "notify payload is missing".to_owned())?

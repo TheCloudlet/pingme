@@ -1,27 +1,29 @@
-//! Codex CLI and Grok Build: launch commands, completion hooks, and turn
-//! notifications.
+//! Codex CLI, Grok Build, and Antigravity CLI: launch commands, completion
+//! hooks, and turn notifications.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use pingme_session::AgentSession;
 use pingme_support::shell::shell_quote;
 
+use crate::agy::agy_command;
 use crate::codex::codex_command;
 use crate::grok::grok_command;
+pub mod agy;
 pub mod codex;
 pub mod grok;
 pub mod turn;
 
 /// The Agent CLIs pingme can launch, as typed after `pingme` or `/pingme`.
-pub const AGENT_CLIS: [&str; 2] = ["codex", "grok"];
+pub const AGENT_CLIS: [&str; 3] = ["codex", "grok", "agy"];
 
 pub fn agent_command(session: &AgentSession) -> String {
     let notify_socket_path = session.notify_socket.as_deref();
     let notify_token = session.notify_token.as_deref();
-    let command = if session.agent_cli == "grok" {
-        grok_command(session, notify_socket_path, notify_token)
-    } else {
-        codex_command(session, notify_socket_path, notify_token)
+    let command = match session.agent_cli.as_str() {
+        "agy" => agy_command(session, notify_socket_path, notify_token),
+        "grok" => grok_command(session, notify_socket_path, notify_token),
+        _ => codex_command(session, notify_socket_path, notify_token),
     };
     let command = append_agent_args(command, &session.agent_args);
     match notify_token {
@@ -169,5 +171,32 @@ mod tests {
         assert!(command.contains(" codex -c "), "{command}");
         assert!(command.ends_with(" 'resume' 'session-id'"), "{command}");
         assert!(command.starts_with("tmux wait-for 'pingme-start-secret'; exec env "));
+    }
+
+    #[test]
+    fn agy_launch_command_bridges_and_forwards_trailing_args() {
+        let mut session = AgentSession::for_launch(
+            "agy-pingme",
+            "agy",
+            "linux",
+            "project",
+            "/work/pingme",
+            "C1",
+            "U1",
+            PanePlacement::DetachedWindow,
+        );
+        session.thread_ts = Some("100.1".to_owned());
+        session.agent_args = vec!["--continue".to_owned()];
+        session.notify_socket = Some("/tmp/pingme.sock".to_owned());
+        session.notify_token = Some("secret".to_owned());
+        let command = agent_command(&session);
+
+        assert!(command.ends_with(" agy '--continue'"), "{command}");
+        assert!(command.starts_with("tmux wait-for 'pingme-start-secret'; exec env "));
+
+        let mut unbridged = session;
+        unbridged.thread_ts = None;
+        unbridged.notify_token = None;
+        assert_eq!("exec agy '--continue'", agent_command(&unbridged));
     }
 }

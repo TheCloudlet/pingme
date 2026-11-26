@@ -48,7 +48,7 @@ pub(crate) fn run_cli_with_services(
 }
 
 pub fn usage() -> String {
-    "usage: pingme <codex|grok> [agent-args...] | pingme <list|attach <session-name>|cleanup|doctor>\n"
+    "usage: pingme <codex|grok|agy> [agent-args...] | pingme <list|attach <session-name>|cleanup|doctor>\n"
         .to_owned()
 }
 

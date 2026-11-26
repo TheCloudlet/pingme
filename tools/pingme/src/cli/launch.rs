@@ -186,7 +186,7 @@ mod tests {
         let mut env = env_with_tokens();
         env.insert("TMUX", "/tmp/tmux-1000/default,1,0");
         env.insert("TMUX_PANE", "%7");
-        for agent in ["codex", "grok"] {
+        for agent in ["codex", "grok", "agy"] {
             let mut services = FakeServices::default();
             let result = run_cli_with_services(&["pingme", agent], SETTING, &env, &mut services);
 

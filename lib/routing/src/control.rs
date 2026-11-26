@@ -33,7 +33,7 @@ pub fn control_action(
     let project_name = words.next().unwrap_or("").to_owned();
     if agent_cli.is_empty() || project_name.is_empty() {
         return ControlAction::Reject(
-            "usage: /pingme <codex|grok> <project> [agent-args...]".to_owned(),
+            "usage: /pingme <codex|grok|agy> <project> [agent-args...]".to_owned(),
         );
     }
     ControlAction::NewSession {
@@ -137,6 +137,19 @@ mod tests {
                 ],
             },
             control_action(&command, "C_TEST_CONTROL", "U_TEST_OPERATOR")
+        );
+
+        let agy = ControlCommand {
+            text: "agy pingme --continue",
+            ..command
+        };
+        assert_eq!(
+            ControlAction::NewSession {
+                agent_cli: "agy".to_owned(),
+                project_name: "pingme".to_owned(),
+                agent_args: vec!["--continue".to_owned()],
+            },
+            control_action(&agy, "C_TEST_CONTROL", "U_TEST_OPERATOR")
         );
     }
 }

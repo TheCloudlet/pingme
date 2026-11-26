@@ -129,6 +129,33 @@ impl Phone {
         handled
     }
 
+    /// Antigravity's Stop hook fires `after` the last event with `last_user_input` and `answer`.
+    fn finish_agy(
+        &mut self,
+        after: Duration,
+        termination_reason: &str,
+        last_user_input: &str,
+        answer: &str,
+    ) -> Result<(), String> {
+        self.clock += after;
+        let stop = serde_json::json!({
+            "hookEventName": "Stop",
+            "terminationReason": termination_reason,
+            "lastUserInput": last_user_input,
+            "lastAssistantMessage": answer,
+        });
+        let notification = serde_json::json!({
+            "token": "secret",
+            "agent_cli": "agy",
+            "notification": stop.to_string(),
+        });
+        let mut live = std::mem::take(&mut self.live);
+        let setting = self.setting.clone();
+        let handled = handle_host_notification(self, &setting, &notification, &mut live);
+        self.live = live;
+        handled
+    }
+
     /// Grok's Stop hook fires `after` the last event with `answer`.
     fn finish(&mut self, after: Duration, answer: &str) -> Result<(), String> {
         self.clock += after;
@@ -648,5 +675,53 @@ fn resumed_or_lagging_codex_session_does_not_replay_prior_history_into_new_threa
             "(pong codex)\nYes, Tower.",
         ],
         phone.posts_in(new_ts)
+    );
+}
+
+#[test]
+fn agy_answers_slack_and_terminal_turns_and_ignores_canceled_stops() {
+    let mut phone = Phone::new();
+    phone.sessions[0].agent_cli = "agy".to_owned();
+    let thread_ts = "1757221923.123456";
+
+    // Slack prompt is not echoed back as *You (terminal)*.
+    phone.send("check the build").unwrap();
+    phone
+        .finish_agy(
+            Duration::from_secs(12),
+            "NO_TOOL_CALL",
+            "check the build",
+            "Build is green.",
+        )
+        .unwrap();
+
+    // Terminal-typed prompt is mirrored once beside its answer.
+    phone
+        .finish_agy(
+            Duration::from_secs(8),
+            "NO_TOOL_CALL",
+            "run clippy too",
+            "Zero warnings.",
+        )
+        .unwrap();
+
+    // User-canceled stops produce no bogus pong.
+    phone
+        .finish_agy(
+            Duration::from_secs(2),
+            "USER_CANCELED",
+            "aborted prompt",
+            "partial",
+        )
+        .unwrap();
+
+    assert_eq!(
+        vec![
+            "(ping agy)",
+            "(pong agy)\nBuild is green.",
+            "*You (terminal)*\nrun clippy too",
+            "(pong agy)\nZero warnings.",
+        ],
+        phone.posts_in(thread_ts)
     );
 }
